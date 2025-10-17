@@ -18,6 +18,123 @@ The application uses a **two-Lambda architecture** with scheduled execution:
 - **Amazon SES**: Email delivery service
 - **IAM**: Roles and permissions management
 
+## Related Projects
+
+This extension is part of a suite of three interconnected projects designed to work with the Aula.dk platform. Each project can be used independently, but together they form a complete solution for Aula session management, API interaction, and automation.
+
+### 🔐 AulaLoginBrowserExtension 
+
+**Repository**: [github.com/ilenhart/AulaLoginBrowserExtension](https://github.com/ilenhart/AulaLoginBrowserExtension)
+
+**Purpose**: Chrome browser extension for capturing and storing Aula session IDs
+
+**What it does**:
+- Automatically detects and extracts your PHPSESSID from www.aula.dk
+- Provides a real-time view of your current session
+- Synchronizes session IDs with a backend persistence layer via REST API
+- Supports custom authentication for secure backend communication
+- Can work with any REST backend, or specifically with **AulaNewsletterTS** as a backend
+
+**Use this when**: You need to capture and persist your Aula session ID for use by other services or automation tools.
+
+---
+
+### 📡 AulaApiClient
+
+**Repository**: [github.com/ilenhart/AulaAPIClient](https://github.com/ilenhart/AulaApiClient)
+
+**Purpose**: General-purpose API wrapper for the Aula platform
+
+**What it does**:
+- Provides a clean, typed interface for interacting with Aula.dk `/api` endpoints
+- Handles authentication using the PHPSESSID session ID
+- Wraps common Aula API operations (messages, calendars, profiles, etc.)
+- Can be integrated into any Node.js or TypeScript project
+
+**Use this when**: You need to programmatically interact with Aula's API from your own applications or scripts.
+
+---
+
+### 📰 AulaNewsletterTS (This Project)
+
+**Repository**: [github.com/ilenhart/AulaNewsletterTS](https://github.com/ilenhart/AulaNewsletterTS)
+
+**Purpose**: AWS-based automation platform for Aula with session persistence and AI-powered newsletters
+
+**What it does**:
+- Acts as a REST API backend for storing session IDs (compatible with this extension)
+- Periodically pings Aula to keep sessions alive  (similar to if you keep Aula open in your browser and occasionally refresh)
+- Pulls information from Aula using the **AulaApiClient** library
+- Generates AI-powered newsletters from Aula data
+- Sends automated email updates
+- Deployed as a serverless solution on AWS (Lambda, DynamoDB, SES)
+
+**Use this when**: You want a complete, turnkey solution for Aula automation, session management, and automated newsletters.
+
+---
+
+### How They Work Together
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Browser (www.aula.dk)                                      │
+│  ┌────────────────────────────────────┐                     │
+│  │  AulaLoginBrowserExtension         │                     │
+│  │  • Captures PHPSESSID              │                     │
+│  │  • Shows current session           │                     │
+│  └────────────────┬───────────────────┘                     │
+└───────────────────┼─────────────────────────────────────────┘
+                    │
+                    │ REST API (POST /session)
+                    ▼
+┌─────────────────────────────────────────────────────────────┐
+│  AWS (AulaNewsletterTS)                                     │
+│  ┌────────────────────────────────────┐                     │
+│  │  • Stores session ID in DynamoDB   │                     │
+│  │  • Keeps session alive (pings)     │                     │
+│  │  • Uses AulaApiClient ────────┐    │                     │
+│  └────────────────────────────────┼────┘                    │
+└───────────────────────────────────┼─────────────────────────┘
+                                    │
+                                    │ Uses library
+                                    ▼
+┌─────────────────────────────────────────────────────────────┐
+│  AulaApiClient                                              │
+│  ┌────────────────────────────────────┐                     │
+│  │  • Makes API calls to Aula.dk      │                     │
+│  │  • Fetches messages, calendar, etc │                     │
+│  │  • Returns structured data         │                     │
+│  └────────────────────────────────────┘                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Usage Scenarios
+
+**Scenario 1: Manual Session Management**
+- Use **AulaLoginBrowserExtension** alone to view and manually save your session ID to a simple backend of your choice
+
+**Scenario 2: Custom Integration**
+- Use **AulaLoginBrowserExtension** to capture sessions
+- Use **AulaApiClient** in your own application to interact with Aula
+- Build your own backend for session storage
+
+**Scenario 3: Complete Automation (Recommended)**
+- Deploy **AulaNewsletterTS** to AWS
+- Install **AulaLoginBrowserExtension** and configure it to use AulaNewsletterTS endpoints
+- Extension automatically keeps the backend session updated
+- **AulaNewsletterTS** uses **AulaApiClient** to pull data and generate newsletters
+- Fully automated Aula monitoring and notifications
+
+### Getting Started with the Full Stack
+
+1. **Deploy AulaNewsletterTS** to AWS (follow its README for deployment instructions)
+2. **Install this extension** (AulaLoginBrowserExtension) in Chrome
+3. **Configure the extension** to use your AulaNewsletterTS API endpoints
+4. **Log into Aula.dk** - the extension will automatically sync your session
+5. **AulaNewsletterTS** will handle the rest (keeping session alive, generating newsletters)
+
+Each project has its own detailed documentation in its respective repository.
+
 ## Project Structure
 
 ```
@@ -43,35 +160,7 @@ cdk/
 └── tsconfig.json                     # TypeScript configuration
 ```
 
-## Best Practices Implemented
 
-### 1. **Modular Construct Design**
-The infrastructure is organized into logical, reusable constructs:
-- **DynamoDBTablesConstruct**: Manages all 12 DynamoDB tables
-- **LambdaFunctionsConstruct**: Creates Lambda functions with proper IAM roles
-- **EventSchedulesConstruct**: Sets up EventBridge scheduling rules
-
-### 2. **Configuration Management**
-- Environment variables loaded from `.env` file using `dotenv`
-- Type-safe configuration interface (`LambdaFunctionsConfig`)
-- Sensible defaults with override capability
-
-### 3. **L2 Constructs**
-Uses higher-level CDK constructs (L2) instead of CloudFormation-level (L1):
-- `dynamodb.Table` instead of `CfnTable`
-- `lambda.Function` instead of `CfnFunction`
-- `events.Rule` with `targets.LambdaFunction`
-
-### 4. **Security & Permissions**
-- Dedicated IAM role for Lambda functions
-- Principle of least privilege (only necessary managed policies)
-- Automatic DynamoDB permission grants via `grantReadWriteData()`
-
-### 5. **Maintainability**
-- TypeScript for type safety
-- Clear naming conventions
-- Comprehensive documentation
-- Separation of concerns
 
 ## Setup Instructions
 

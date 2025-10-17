@@ -85,6 +85,23 @@ export interface AulaBookList {
   [key: string]: any;
 }
 
+// ===== Attachment Metadata Types =====
+
+export interface AttachmentMetadata {
+  AttachmentId: string; // Format: "post-{postId}-{attachmentId}" or "message-{messageId}-{attachmentId}"
+  PostId: number | null; // Set if attachment is from a post
+  MessageId: string | null; // Set if attachment is from a message
+  AttachmentType: 'image' | 'file';
+  FileName: string;
+  OriginalUrl: string;
+  S3Key: string;
+  S3Bucket: string;
+  DownloadedAt: string; // ISO 8601 timestamp
+  FileSize?: number; // Bytes
+  ContentType?: string; // MIME type
+  ttl: number; // TTL for automatic deletion (1 year from download)
+}
+
 // ===== Session Types =====
 
 export interface AulaSession {

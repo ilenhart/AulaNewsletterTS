@@ -112,10 +112,16 @@ export interface AulaConfig {
   apiUrl: string;
 }
 
+export interface AttachmentsConfig {
+  bucketName: string;
+  tableName: string;
+}
+
 export interface LambdaConfig {
   dynamodb: DynamoDBConfig;
   dataRetrieval: DataRetrievalConfig;
   aula: AulaConfig;
+  attachments?: AttachmentsConfig;
 }
 
 // ===== Data Structure Types =====

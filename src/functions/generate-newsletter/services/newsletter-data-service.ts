@@ -10,11 +10,13 @@ import { getDateRange, logInfo } from '../../../common/utils';
 export interface ThreadsWithAttachments {
   threads: AulaThread[];
   attachments: AttachmentGroup[];
+  messages: Array<{ Id: string; ThreadSubject: string }>; // For S3 attachment retrieval
 }
 
 export interface PostsWithAttachments {
   posts: any[];
   attachments: AttachmentGroup[];
+  postsWithIds: Array<{ Id: number; Title: string }>; // For S3 attachment retrieval
 }
 
 /**
@@ -62,8 +64,14 @@ export class NewsletterDataService {
       }
     });
 
+    // Build messages array with IDs and thread subjects for S3 attachment retrieval
+    const messagesWithIds = messages.map(msg => ({
+      Id: msg.Id,
+      ThreadSubject: threads.find(t => t.Id === msg.ThreadId)?.Subject || 'Unknown Thread',
+    }));
+
     logInfo(`Retrieved ${threads.length} threads with ${messages.length} messages`);
-    return { threads, attachments };
+    return { threads, attachments, messages: messagesWithIds };
   }
 
   /**
@@ -99,8 +107,14 @@ export class NewsletterDataService {
       }
     });
 
+    // Build posts array with IDs and titles for S3 attachment retrieval
+    const postsWithIds = posts.map(post => ({
+      Id: post.Id,
+      Title: post.Title,
+    }));
+
     logInfo(`Retrieved ${posts.length} posts`);
-    return { posts, attachments };
+    return { posts, attachments, postsWithIds };
   }
 
   /**

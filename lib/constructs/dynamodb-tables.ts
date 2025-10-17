@@ -24,6 +24,9 @@ export class DynamoDBTablesConstruct extends Construct {
   public readonly parsedPostsTable: dynamodb.Table;
   public readonly derivedEventsFromPostsTable: dynamodb.Table;
 
+  // Attachments table
+  public readonly aulaAttachmentsTable: dynamodb.Table;
+
   private readonly removalPolicy: cdk.RemovalPolicy;
 
   constructor(scope: Construct, id: string, removalPolicy: cdk.RemovalPolicy) {
@@ -105,6 +108,38 @@ export class DynamoDBTablesConstruct extends Construct {
       'Id',
       dynamodb.AttributeType.NUMBER
     );
+
+    // Attachments table with GSI for querying by PostId or MessageId
+    this.aulaAttachmentsTable = new dynamodb.Table(this, 'AulaAttachmentsTable', {
+      tableName: 'AulaAttachmentsTable',
+      partitionKey: {
+        name: 'AttachmentId',
+        type: dynamodb.AttributeType.STRING,
+      },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: this.removalPolicy,
+      timeToLiveAttribute: 'ttl',
+    });
+
+    // GSI for querying attachments by PostId
+    this.aulaAttachmentsTable.addGlobalSecondaryIndex({
+      indexName: 'PostIdIndex',
+      partitionKey: {
+        name: 'PostId',
+        type: dynamodb.AttributeType.NUMBER,
+      },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI for querying attachments by MessageId
+    this.aulaAttachmentsTable.addGlobalSecondaryIndex({
+      indexName: 'MessageIdIndex',
+      partitionKey: {
+        name: 'MessageId',
+        type: dynamodb.AttributeType.STRING,
+      },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
   }
 
   /**
@@ -144,6 +179,7 @@ export class DynamoDBTablesConstruct extends Construct {
       this.rawDerivedEventsTable,
       this.parsedPostsTable,
       this.derivedEventsFromPostsTable,
+      this.aulaAttachmentsTable,
     ];
   }
 }

@@ -5,6 +5,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as path from 'path';
 import { Construct } from 'constructs';
 import { DynamoDBTablesConstruct } from './dynamodb-tables';
+import { S3BucketsConstruct } from './s3-buckets';
 import { LambdaConfiguration } from '../config/stack-config';
 
 /**
@@ -25,14 +26,15 @@ export class LambdaFunctionsConstruct extends Construct {
     scope: Construct,
     id: string,
     tables: DynamoDBTablesConstruct,
+    buckets: S3BucketsConstruct,
     config: LambdaConfiguration
   ) {
     super(scope, id);
 
-    // Create IAM role for GetAulaAndPersist Lambda (only needs DynamoDB access)
+    // Create IAM role for GetAulaAndPersist Lambda (needs DynamoDB and S3 access)
     this.getAulaRole = new iam.Role(this, 'GetAulaAndPersistRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
-      description: 'Execution role for GetAulaAndPersist Lambda - DynamoDB read/write only',
+      description: 'Execution role for GetAulaAndPersist Lambda - DynamoDB and S3 access',
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
       ],
@@ -42,6 +44,9 @@ export class LambdaFunctionsConstruct extends Construct {
     tables.getAllTables().forEach(table => {
       table.grantReadWriteData(this.getAulaRole);
     });
+
+    // Grant S3 write permissions for attachment uploads
+    buckets.attachmentsBucket.grantReadWrite(this.getAulaRole);
 
     // Create IAM role for KeepSessionAlive Lambda (needs session table access and SES for alerts)
     this.keepSessionAliveRole = new iam.Role(this, 'KeepSessionAliveRole', {
@@ -83,6 +88,9 @@ export class LambdaFunctionsConstruct extends Construct {
     tables.getAllTables().forEach(table => {
       table.grantReadData(this.generateNewsletterRole);
     });
+
+    // Grant S3 read permissions for attachments
+    buckets.attachmentsBucket.grantRead(this.generateNewsletterRole);
 
     // Grant specific Bedrock permissions (least privilege - only the model we use)
     this.generateNewsletterRole.addToPolicy(new iam.PolicyStatement({
@@ -163,6 +171,8 @@ export class LambdaFunctionsConstruct extends Construct {
         CALENDAR_EVENTS_DAYS_PAST: config.calendarEventsPast.toString(),
         CALENDAR_EVENTS_DAYS_FUTURE: config.calendarEventsFuture.toString(),
         GALLERY_DAYS: config.galleryDays.toString(),
+        ATTACHMENTS_BUCKET: buckets.attachmentsBucket.bucketName,
+        ATTACHMENTS_TABLE: tables.aulaAttachmentsTable.tableName,
       },
       bundling: commonBundling,
     });
@@ -189,6 +199,8 @@ export class LambdaFunctionsConstruct extends Construct {
         CALENDAR_EVENTS_DAYS_IN_PAST: config.calendarEventsDaysInPast.toString(),
         CALENDAR_EVENTS_DAYS_IN_FUTURE: config.calendarEventsDaysInFuture.toString(),
         POSTS_DAYS_IN_PAST: config.postsDaysInPast.toString(),
+        ATTACHMENTS_BUCKET: buckets.attachmentsBucket.bucketName,
+        ATTACHMENTS_TABLE: tables.aulaAttachmentsTable.tableName,
       },
       bundling: commonBundling,
     });

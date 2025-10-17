@@ -5,6 +5,12 @@
 import { validateRequired, getEnvString, getEnvInt, getEnvArray } from '../../common/config';
 import { DynamoDBConfig } from '../../common/types';
 
+export interface AttachmentsConfig {
+  tableName: string;
+  bucketName: string;
+  region: string;
+}
+
 export interface NewsletterConfig {
   dynamodb: DynamoDBConfig;
   dataRetrieval: {
@@ -25,6 +31,7 @@ export interface NewsletterConfig {
   bedrock: {
     modelId: string;
   };
+  attachments?: AttachmentsConfig;
 }
 
 /**
@@ -43,6 +50,20 @@ export function getConfig(): NewsletterConfig {
     'CHILD_NAME',
     'PARENT_NAMES',
   ]);
+
+  // Load optional attachments configuration
+  let attachments: AttachmentsConfig | undefined;
+  const attachmentsTable = process.env.ATTACHMENTS_TABLE;
+  const attachmentsBucket = process.env.ATTACHMENTS_BUCKET;
+  const region = process.env.AWS_REGION;
+
+  if (attachmentsTable && attachmentsBucket && region) {
+    attachments = {
+      tableName: attachmentsTable,
+      bucketName: attachmentsBucket,
+      region,
+    };
+  }
 
   return {
     dynamodb: {
@@ -75,5 +96,6 @@ export function getConfig(): NewsletterConfig {
     bedrock: {
       modelId: getEnvString('BEDROCK_MODEL_ID', 'anthropic.claude-3-sonnet-20240229-v1:0'),
     },
+    attachments,
   };
 }

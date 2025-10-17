@@ -11,6 +11,7 @@ import { DynamoDBDataReader } from '../../common/dynamodb/data-access';
 import { BedrockService } from './services/bedrock-service';
 import { EmailService } from './services/email-service';
 import { NewsletterDataService } from './services/newsletter-data-service';
+import { AttachmentRetrievalService } from './services/attachment-retrieval-service';
 import { OverviewProcessor } from './processors/overview-processor';
 import { ThreadProcessor } from './processors/thread-processor';
 import { CalendarProcessor } from './processors/calendar-processor';
@@ -86,7 +87,7 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
       posts: postsData.posts.length,
     });
 
-    // Process all data types in parallel
+    // Process all data types in parallel with AI
     logInfo('Processing data with AI');
     const [overviewResult, threadResult, calendarResult, postResult] = await Promise.all([
       overviewProcessor.process(overviews, today),
@@ -106,12 +107,33 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
       posts: postResult.summary,
     });
 
+    // Fetch S3 attachments (if configured)
+    let s3Attachments;
+    if (config.attachments) {
+      logInfo('Fetching S3 attachments');
+      const attachmentService = new AttachmentRetrievalService(docClient, config.attachments);
+
+      const [postAttachments, messageAttachments] = await Promise.all([
+        attachmentService.getAttachmentsForPosts(postsData.postsWithIds),
+        attachmentService.getAttachmentsForMessages(threadsData.messages),
+      ]);
+
+      s3Attachments = {
+        posts: postAttachments,
+        messages: messageAttachments,
+      };
+
+      logInfo('S3 attachments fetched', {
+        postAttachmentGroups: postAttachments.length,
+        messageAttachmentGroups: messageAttachments.length,
+      });
+    } else {
+      logInfo('S3 attachments not configured, skipping attachment retrieval');
+    }
+
     // Build and send email
     logInfo('Building email');
-    const htmlContent = emailService.buildHtmlEmail(finalSummary, {
-      posts: postsData.attachments,
-      messages: threadsData.attachments,
-    });
+    const htmlContent = emailService.buildHtmlEmail(finalSummary, s3Attachments);
 
     const subject = emailService.generateSubject(today);
 

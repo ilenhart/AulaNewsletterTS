@@ -70,6 +70,7 @@ export interface LambdaConfiguration {
  * Stack-level properties
  */
 export interface StackProperties {
+  environment: 'development' | 'staging' | 'production';
   removalPolicy: cdk.RemovalPolicy;
   enableCostTags: boolean;
   tags: Record<string, string>;
@@ -207,6 +208,7 @@ export function loadConfiguration(): StackConfiguration {
       keepSessionAliveTimeout: getEnvNumber('KEEP_SESSION_ALIVE_TIMEOUT', 60),
     },
     stackProps: {
+      environment,
       // Use RETAIN for production, DESTROY for dev/staging
       removalPolicy: environment === 'production' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
       enableCostTags: true,

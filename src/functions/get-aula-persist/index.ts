@@ -1,17 +1,20 @@
 /**
  * GetAulaAndPersist Lambda Handler
  * Fetches data from Aula API and persists to DynamoDB
+ * Downloads attachments from posts/messages and stores in S3
  * Runs on EventBridge schedule (twice daily: 9am and 5pm UTC)
  */
 
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { S3Client } from '@aws-sdk/client-s3';
 import { AulaAPIClient, AulaClientConfig } from 'aula-apiclient-ts';
 import * as dotenv from 'dotenv';
 
 import { getConfig } from './config';
 import { DynamoDBSessionProvider } from './session-provider';
 import { AulaDataService } from './aula-data-service';
+import { AttachmentDownloadService } from './attachment-download-service';
 import { DynamoDBManager } from './dynamodb-manager';
 import { LambdaEvent, LambdaContext, LambdaResponse } from './types';
 import {
@@ -78,8 +81,25 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
     aulaConfig.aulaApiUrl = config.aula.apiUrl;
     const aulaClient = new AulaAPIClient(aulaConfig);
 
+    // Initialize S3 client for attachment downloads
+    let attachmentService: AttachmentDownloadService | undefined;
+    if (config.attachments?.bucketName && config.attachments?.tableName) {
+      logInfo('Initializing attachment download service');
+      const s3Client = new S3Client(awsConfig);
+      attachmentService = new AttachmentDownloadService(
+        s3Client,
+        docClient,
+        {
+          s3Bucket: config.attachments.bucketName,
+          attachmentsTableName: config.attachments.tableName,
+        }
+      );
+    } else {
+      logInfo('Attachment download service disabled (missing configuration)');
+    }
+
     // Initialize services
-    const aulaDataService = new AulaDataService(aulaClient);
+    const aulaDataService = new AulaDataService(aulaClient, attachmentService);
     const dynamoManager = new DynamoDBManager(config.dynamodb, awsConfig.credentials);
 
     // Login to Aula

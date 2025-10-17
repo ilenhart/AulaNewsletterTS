@@ -7,6 +7,15 @@ import { APIGatewayProxyEvent } from 'aws-lambda';
 import { logWarn } from '../../common/utils';
 
 /**
+ * CORS headers for all responses
+ */
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type,X-aulasession-authenticate,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+};
+
+/**
  * Validates the authentication token from request headers
  * Returns true if valid, false otherwise
  */
@@ -34,6 +43,7 @@ export function createUnauthorizedResponse() {
     statusCode: 401,
     headers: {
       'Content-Type': 'application/json',
+      ...CORS_HEADERS,
     },
     body: JSON.stringify({
       error: 'Unauthorized',

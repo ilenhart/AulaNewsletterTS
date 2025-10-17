@@ -14,7 +14,13 @@
       "Bash(set ESBUILD_BINARY_PATH=C:srcAulaNewsletterTSnode_modules.binesbuild.cmd:*)",
       "Read(//c//**)",
       "Read(//c/src/**)",
-      "Bash(npm link:*)"
+      "Bash(npm link:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(if [ -d .git ])",
+      "Bash(then echo \"Git repo exists\")",
+      "Bash(else echo \"Not a git repo\")",
+      "Bash(fi)",
+      "Bash(npm install:*)"
     ],
     "deny": [],
     "ask": []

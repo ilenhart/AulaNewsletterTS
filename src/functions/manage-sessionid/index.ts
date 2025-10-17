@@ -16,6 +16,16 @@ import { validateAuthToken, createUnauthorizedResponse } from './auth';
 import { SessionManager } from './session-manager';
 
 /**
+ * CORS headers for all responses
+ * Allows requests from Chrome extensions and web browsers
+ */
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type,X-aulasession-authenticate,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+};
+
+/**
  * Main Lambda handler for API Gateway proxy integration
  */
 export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
@@ -66,6 +76,7 @@ async function handleGetSession(sessionManager: SessionManager): Promise<APIGate
         statusCode: 404,
         headers: {
           'Content-Type': 'application/json',
+          ...CORS_HEADERS,
         },
         body: JSON.stringify({
           error: 'Not Found',
@@ -78,6 +89,7 @@ async function handleGetSession(sessionManager: SessionManager): Promise<APIGate
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
+        ...CORS_HEADERS,
       },
       body: JSON.stringify(session),
     };
@@ -103,6 +115,7 @@ async function handlePostSession(
         statusCode: 400,
         headers: {
           'Content-Type': 'application/json',
+          ...CORS_HEADERS,
         },
         body: JSON.stringify({
           error: 'Bad Request',
@@ -119,6 +132,7 @@ async function handlePostSession(
         statusCode: 400,
         headers: {
           'Content-Type': 'application/json',
+          ...CORS_HEADERS,
         },
         body: JSON.stringify({
           error: 'Bad Request',
@@ -133,6 +147,7 @@ async function handlePostSession(
         statusCode: 400,
         headers: {
           'Content-Type': 'application/json',
+          ...CORS_HEADERS,
         },
         body: JSON.stringify({
           error: 'Bad Request',
@@ -148,6 +163,7 @@ async function handlePostSession(
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
+        ...CORS_HEADERS,
       },
       body: JSON.stringify({
         message: 'Session ID updated successfully',
@@ -171,6 +187,7 @@ function createMethodNotAllowedResponse(method: string): APIGatewayProxyResult {
     headers: {
       'Content-Type': 'application/json',
       'Allow': 'GET, POST',
+      ...CORS_HEADERS,
     },
     body: JSON.stringify({
       error: 'Method Not Allowed',
@@ -187,6 +204,7 @@ function createErrorResponse(error: unknown): APIGatewayProxyResult {
     statusCode: 500,
     headers: {
       'Content-Type': 'application/json',
+      ...CORS_HEADERS,
     },
     body: JSON.stringify({
       error: 'Internal Server Error',

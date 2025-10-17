@@ -11,12 +11,16 @@ import {
   capitalizeKeys,
 } from './data-transformers';
 import { logInfo, logError, AulaAPIError } from './utils';
+import { AttachmentDownloadService } from './attachment-download-service';
 
 /**
  * Service class for retrieving and transforming Aula data
  */
 export class AulaDataService {
-  constructor(private readonly aulaClient: AulaAPIClient) {}
+  constructor(
+    private readonly aulaClient: AulaAPIClient,
+    private readonly attachmentService?: AttachmentDownloadService
+  ) {}
 
   /**
    * Retrieves all current information from Aula API
@@ -91,7 +95,14 @@ export class AulaDataService {
    */
   private async fetchThreads(days: number): Promise<any[]> {
     logInfo(`Fetching threads from past ${days} days`);
-    return await this.aulaClient.GetAulaThreads(days);
+    const threads = await this.aulaClient.GetAulaThreads(days);
+
+    // Download attachments from messages if attachment service is available
+    if (this.attachmentService) {
+      await this.downloadThreadAttachments(threads);
+    }
+
+    return threads;
   }
 
   /**
@@ -99,7 +110,70 @@ export class AulaDataService {
    */
   private async fetchPosts(days: number): Promise<any[]> {
     logInfo(`Fetching posts from past ${days} days`);
-    return await this.aulaClient.GetPosts(days);
+    const posts = await this.aulaClient.GetPosts(days);
+
+    // Download attachments if attachment service is available
+    if (this.attachmentService) {
+      await this.downloadPostAttachments(posts);
+    }
+
+    return posts;
+  }
+
+  /**
+   * Downloads attachments from all posts
+   */
+  private async downloadPostAttachments(posts: any[]): Promise<void> {
+    logInfo(`Downloading attachments for ${posts.length} posts`);
+    let totalAttachments = 0;
+
+    for (const post of posts) {
+      if (post.attachments && post.attachments.length > 0) {
+        try {
+          const metadata = await this.attachmentService!.downloadPostAttachments(
+            post.id,
+            post.attachments
+          );
+          totalAttachments += metadata.length;
+        } catch (error) {
+          logError(`Failed to download attachments for post ${post.id}`, {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
+
+    logInfo(`Downloaded ${totalAttachments} post attachments`);
+  }
+
+  /**
+   * Downloads attachments from all thread messages
+   */
+  private async downloadThreadAttachments(threads: any[]): Promise<void> {
+    logInfo(`Downloading attachments for ${threads.length} threads`);
+    let totalAttachments = 0;
+
+    for (const thread of threads) {
+      if (thread.messages) {
+        for (const message of thread.messages) {
+          if (message.attachments && message.attachments.length > 0) {
+            try {
+              const metadata = await this.attachmentService!.downloadMessageAttachments(
+                message.id,
+                message.attachments
+              );
+              totalAttachments += metadata.length;
+            } catch (error) {
+              logError(`Failed to download attachments for message ${message.id}`, {
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+        }
+      }
+    }
+
+    logInfo(`Downloaded ${totalAttachments} message attachments`);
   }
 
   /**

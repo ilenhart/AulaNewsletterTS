@@ -90,6 +90,20 @@ function loadAulaConfig(): AulaConfig {
 }
 
 /**
+ * Loads attachments configuration from environment variables (optional)
+ */
+function loadAttachmentsConfig(): { bucketName: string; tableName: string } | undefined {
+  const bucketName = process.env.ATTACHMENTS_BUCKET;
+  const tableName = process.env.ATTACHMENTS_TABLE;
+
+  if (!bucketName || !tableName) {
+    return undefined;
+  }
+
+  return { bucketName, tableName };
+}
+
+/**
  * Loads and validates all configuration from environment variables
  * Throws an error if required variables are missing
  */
@@ -102,6 +116,7 @@ export function getConfig(): LambdaConfig {
     dynamodb: loadDynamoDBConfig(),
     dataRetrieval: loadDataRetrievalConfig(),
     aula: loadAulaConfig(),
+    attachments: loadAttachmentsConfig(),
   };
 
   return config;

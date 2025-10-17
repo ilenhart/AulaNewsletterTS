@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { DynamoDBTablesConstruct } from '../constructs/dynamodb-tables';
+import { S3BucketsConstruct } from '../constructs/s3-buckets';
 import { LambdaFunctionsConstruct } from '../constructs/lambda-functions';
 import { EventSchedulesConstruct } from '../constructs/event-schedules';
 import { ApiGatewayConstruct } from '../constructs/api-gateway';
@@ -11,12 +12,14 @@ import { StackConfiguration } from '../config/stack-config';
  *
  * This stack creates:
  * - DynamoDB tables for storing Aula data (RAW, PARSED, and session data)
+ * - S3 buckets for storing attachments
  * - Lambda functions for fetching data and generating newsletters
  * - EventBridge rules for scheduled execution
  * - IAM roles and permissions
  */
 export class AulaNewsletterStack extends cdk.Stack {
   public readonly tables: DynamoDBTablesConstruct;
+  public readonly buckets: S3BucketsConstruct;
   public readonly lambdaFunctions: LambdaFunctionsConstruct;
   public readonly eventSchedules: EventSchedulesConstruct;
   public readonly apiGateway: ApiGatewayConstruct;
@@ -27,11 +30,17 @@ export class AulaNewsletterStack extends cdk.Stack {
     // Create DynamoDB Tables
     this.tables = new DynamoDBTablesConstruct(this, 'DynamoDBTables', config.stackProps.removalPolicy);
 
+    // Create S3 Buckets
+    this.buckets = new S3BucketsConstruct(this, 'S3Buckets', {
+      environment: config.stackProps.environment,
+    });
+
     // Create Lambda Functions
     this.lambdaFunctions = new LambdaFunctionsConstruct(
       this,
       'LambdaFunctions',
       this.tables,
+      this.buckets,
       config.lambdaConfig
     );
 
@@ -170,6 +179,24 @@ export class AulaNewsletterStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'KeepSessionAliveSchedule', {
       description: 'KeepSessionAlive cron schedule',
       value: config.scheduleConfig.keepSessionAliveSchedule,
+    });
+
+    // S3 Bucket outputs
+    new cdk.CfnOutput(this, 'AttachmentsBucketName', {
+      description: 'S3 bucket for Aula attachments',
+      value: this.buckets.attachmentsBucket.bucketName,
+      exportName: `${id}-AttachmentsBucketName`,
+    });
+
+    new cdk.CfnOutput(this, 'AttachmentsBucketArn', {
+      description: 'ARN of the attachments S3 bucket',
+      value: this.buckets.attachmentsBucket.bucketArn,
+    });
+
+    // Attachments Table output
+    new cdk.CfnOutput(this, 'AttachmentsTableName', {
+      description: 'DynamoDB table for attachment metadata',
+      value: this.tables.aulaAttachmentsTable.tableName,
     });
   }
 }
