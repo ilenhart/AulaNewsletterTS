@@ -9,7 +9,7 @@
  */
 
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
-import { createDynamoDBDocumentClient } from '../../common/aws/dynamodb-client';
+import { createDynamoDBDocClient } from '../../common/aws/dynamodb-client';
 import { logInfo, logError } from '../../common/utils';
 import { loadConfig } from './config';
 import { validateAuthToken, createUnauthorizedResponse } from './auth';
@@ -44,7 +44,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     }
 
     // Initialize session manager
-    const docClient = createDynamoDBDocumentClient();
+    const docClient = createDynamoDBDocClient();
     const sessionManager = new SessionManager(docClient, config.tableName);
 
     // Route based on HTTP method

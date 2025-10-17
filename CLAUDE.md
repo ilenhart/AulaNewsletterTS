@@ -354,12 +354,12 @@ AulaNewsletterTS/               # Root-level CDK project (AWS best practice)
 ### Required (Configuration Module Will Fail if Missing)
 
 ```bash
-AULA_USERNAME=your_username                       # Aula API username
-AULA_PASSWORD=your_password                       # Aula API password
 EMAIL_FROM_ADDRESS=verified@email.com             # SES verified sender email
 EMAIL_TO_ADDRESSES=recipient@email.com            # Newsletter recipients
 AULASESSION_AUTHENTICATE_TOKEN=your-secret-token  # API authentication token
 ```
+
+**Note on Authentication:** This project uses session-based authentication. Session IDs are stored in `AulaSessionIdTable` and populated via the ManageSessionId API endpoint (typically by the AulaLoginBrowserExtension). No username/password is required - authentication is handled entirely through session tokens.
 
 ### Optional (With Defaults)
 
@@ -847,7 +847,7 @@ ls -la node_modules/aula-apiclient-ts
 **Problem:** Stack fails to deploy with configuration errors
 ```bash
 # Solution: Verify all required environment variables are set
-cat .env | grep -E "AULA_USERNAME|AULA_PASSWORD|EMAIL_FROM_ADDRESS|EMAIL_TO_ADDRESSES"
+cat .env | grep -E "EMAIL_FROM_ADDRESS|EMAIL_TO_ADDRESSES|AULASESSION_AUTHENTICATE_TOKEN"
 ```
 
 **Problem:** Lambda bundling fails

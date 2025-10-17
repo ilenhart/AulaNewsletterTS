@@ -147,8 +147,10 @@ export class LambdaFunctionsConstruct extends Construct {
         '@aws-sdk/client-dynamodb',
         '@aws-sdk/client-ses',
         '@aws-sdk/lib-dynamodb',
+        '@aws-sdk/client-s3',
       ],
-      // aula-apiclient-ts is bundled directly since it's a local file dependency
+      // aula-apiclient-ts is bundled directly since it's a symlinked local dependency
+      nodeModules: ['aula-apiclient-ts'],  // Bundle this module instead of treating as external
       forceDockerBundling: false,  // Use local esbuild instead of Docker
     };
 
@@ -162,8 +164,6 @@ export class LambdaFunctionsConstruct extends Construct {
       description: 'Fetches data from Aula API and persists to DynamoDB',
       environment: {
         ...commonEnv,
-        AULA_USERNAME: config.aulaUsername,
-        AULA_PASSWORD: config.aulaPassword,
         API_URL: config.apiUrl,
         AULA_SESSION_ID_TABLE: tables.aulaSessionIdTable.tableName,
         THREAD_MESSAGES_DAYS: config.threadMessagesDays.toString(),

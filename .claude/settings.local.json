@@ -20,7 +20,8 @@
       "Bash(then echo \"Git repo exists\")",
       "Bash(else echo \"Not a git repo\")",
       "Bash(fi)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(timeout 180 npx cdk synth:*)"
     ],
     "deny": [],
     "ask": []

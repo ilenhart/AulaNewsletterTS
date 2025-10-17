@@ -3,7 +3,7 @@
  * Loads and validates environment variables
  */
 
-import { requireEnv } from '../../common/config';
+import { getEnvString, validateRequired } from '../../common/config';
 
 export interface ManageSessionIdConfig {
   tableName: string;
@@ -14,8 +14,10 @@ export interface ManageSessionIdConfig {
  * Load and validate configuration from environment variables
  */
 export function loadConfig(): ManageSessionIdConfig {
+  validateRequired(['TABLE_NAME', 'AULASESSION_AUTHENTICATE_TOKEN']);
+
   return {
-    tableName: requireEnv('TABLE_NAME'),
-    authToken: requireEnv('AULASESSION_AUTHENTICATE_TOKEN'),
+    tableName: getEnvString('TABLE_NAME')!,
+    authToken: getEnvString('AULASESSION_AUTHENTICATE_TOKEN')!,
   };
 }

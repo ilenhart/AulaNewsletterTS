@@ -107,8 +107,6 @@ export interface DataRetrievalConfig {
 }
 
 export interface AulaConfig {
-  username: string;
-  password: string;
   apiUrl: string;
 }
 

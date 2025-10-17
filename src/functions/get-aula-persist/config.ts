@@ -10,8 +10,6 @@ import { LambdaConfig, DynamoDBConfig, DataRetrievalConfig, AulaConfig } from '.
  */
 function validateRequiredEnvVars(): void {
   const required = [
-    'AULA_USERNAME',
-    'AULA_PASSWORD',
     'DAILY_OVERVIEW_TABLE',
     'THREADS_TABLE',
     'THREAD_MESSAGES_TABLE',
@@ -83,8 +81,6 @@ function loadDataRetrievalConfig(): DataRetrievalConfig {
  */
 function loadAulaConfig(): AulaConfig {
   return {
-    username: process.env.AULA_USERNAME!,
-    password: process.env.AULA_PASSWORD!,
     apiUrl: process.env.API_URL || 'https://www.aula.dk/api/',
   };
 }

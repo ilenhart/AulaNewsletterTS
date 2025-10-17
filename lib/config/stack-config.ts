@@ -27,9 +27,7 @@ export interface StackConfiguration {
  * Lambda function configuration
  */
 export interface LambdaConfiguration {
-  // Aula API credentials
-  aulaUsername: string;
-  aulaPassword: string;
+  // Aula API configuration
   apiUrl: string;
 
   // User information
@@ -174,8 +172,6 @@ export function loadConfiguration(): StackConfiguration {
     },
     lambdaConfig: {
       // Required fields with validation
-      aulaUsername: requireEnv('AULA_USERNAME'),
-      aulaPassword: requireEnv('AULA_PASSWORD'),
       emailFromAddress: requireEnv('EMAIL_FROM_ADDRESS'),
       emailToAddresses: requireEnv('EMAIL_TO_ADDRESSES'),
       aulaSessionAuthenticateToken: requireEnv('AULASESSION_AUTHENTICATE_TOKEN'),
