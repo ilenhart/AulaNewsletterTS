@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\src\\AulaNewsletterTS\\Original\\aula-newsletter\\lib\\lambda\")",
+      "Bash(npm run build:*)",
+      "Bash(npx cdk synth)",
+      "Bash(dir:*)",
+      "Bash(cat:*)",
+      "Bash(npx cdk:*)",
+      "Bash(node bin/cdk.js:*)",
+      "Bash(find . -type f ( -name \"*.js\" -o -name \"*.d.ts\" -o -name \"*.js.map\" ) -delete)",
+      "Bash(find:*)",
+      "Bash(node:*)",
+      "Bash(set ESBUILD_BINARY_PATH=C:srcAulaNewsletterTSnode_modules.binesbuild.cmd:*)",
+      "Read(//c//**)",
+      "Read(//c/src/**)",
+      "Bash(npm link:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Test coverage
+coverage.data
+coverage/
+
+# Compiled output
+dist/
+
+# Environment files
+.env
+
+# CDK
+cdk.out/
+.cdk.staging/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
