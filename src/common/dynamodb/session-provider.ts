@@ -6,9 +6,9 @@
  */
 
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
-import { ISessionIdProvider } from 'aula-apiclient-ts';
+import type { ISessionIdProvider } from 'aula-apiclient-ts';
 import { AulaSession } from '../types';
-import { logInfo, logWarn, logError, oneHourFromNow } from '../utils';
+import { logInfo, logWarn, logError, oneHourFromNow, oneYearFromNow } from '../utils';
 
 /**
  * DynamoDB-backed implementation of ISessionIdProvider
@@ -96,7 +96,7 @@ export class DynamoDBSessionProvider implements ISessionIdProvider {
         ? now
         : (existingSession?.created || now);
 
-      const ttl = oneHourFromNow();
+      const ttl = oneYearFromNow();
 
       const record: AulaSession = {
         Id: DynamoDBSessionProvider.SESSION_RECORD_ID,
@@ -152,7 +152,7 @@ export class DynamoDBSessionProvider implements ISessionIdProvider {
       const updatedSession: AulaSession = {
         ...session,
         lastUpdated: new Date().toISOString(),
-        ttl: oneHourFromNow(), // Extend TTL
+        ttl: oneYearFromNow(), // Extend TTL to 1 year
       };
 
       await this.docClient.send(

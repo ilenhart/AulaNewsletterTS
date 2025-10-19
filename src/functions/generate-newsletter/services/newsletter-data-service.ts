@@ -4,6 +4,7 @@
  */
 
 import { DynamoDBDataReader } from '../../../common/dynamodb/data-access';
+import { ParsedDataAccess } from '../../../common/dynamodb/parsed-data-access';
 import { AulaThread, AulaMessage, AttachmentGroup } from '../../../common/types';
 import { getDateRange, logInfo } from '../../../common/utils';
 
@@ -23,21 +24,50 @@ export interface PostsWithAttachments {
  * Service for retrieving and organizing newsletter data
  */
 export class NewsletterDataService {
-  constructor(private readonly dataReader: DynamoDBDataReader) {}
+  constructor(
+    private readonly dataReader: DynamoDBDataReader,
+    private readonly parsedDataAccess?: ParsedDataAccess
+  ) {}
 
   /**
    * Gets thread messages with their parent threads and attachments
+   * Phase 1 mode: Fetches last N days
    */
   async getThreadsWithMessages(daysInPast: number): Promise<ThreadsWithAttachments> {
     logInfo('Fetching thread messages for newsletter', { daysInPast });
 
-    const { start, end } = getDateRange(daysInPast, 0);
+    const { start, end} = getDateRange(daysInPast, 0);
 
     // Get messages in date range
     const messages = await this.dataReader.getThreadMessages(start, end);
 
+    return await this.buildThreadsResponse(messages);
+  }
+
+  /**
+   * Gets thread messages SINCE a specific timestamp (Phase 2 incremental mode)
+   * @param sinceTimestamp - Only fetch messages sent after this timestamp
+   */
+  async getThreadsWithMessagesSince(sinceTimestamp: string): Promise<ThreadsWithAttachments> {
+    logInfo('Fetching NEW thread messages since timestamp', { sinceTimestamp });
+
+    const start = new Date(sinceTimestamp);
+    const end = new Date(); // Now
+
+    // Get NEW messages only
+    const messages = await this.dataReader.getThreadMessages(start, end);
+
+    logInfo(`Found ${messages.length} NEW messages since ${sinceTimestamp}`);
+    return await this.buildThreadsResponse(messages);
+  }
+
+  /**
+   * Helper to build threads response from messages
+   */
+  private async buildThreadsResponse(messages: AulaMessage[]): Promise<ThreadsWithAttachments> {
+
     if (messages.length === 0) {
-      return { threads: [], attachments: [] };
+      return { threads: [], attachments: [], messages: [] };
     }
 
     // Get unique thread IDs
@@ -46,9 +76,22 @@ export class NewsletterDataService {
     // Get thread metadata
     const threadMetadata = await this.dataReader.getThreadsByIds(threadIds);
 
-    // Build threads with their messages
+    // Look up translated subjects from PARSED_threads table
+    const translatedSubjectsMap = new Map<number, string>();
+    if (this.parsedDataAccess) {
+      for (const thread of threadMetadata) {
+        const parsedThread = await this.parsedDataAccess.getParsedThread(thread.Id);
+        if (parsedThread) {
+          translatedSubjectsMap.set(thread.Id, parsedThread.SubjectEnglish);
+          logInfo(`Using translated subject for thread ${thread.Id}`);
+        }
+      }
+    }
+
+    // Build threads with their messages, using translated subjects where available
     const threads: AulaThread[] = threadMetadata.map(meta => ({
       ...meta,
+      Subject: translatedSubjectsMap.get(meta.Id) || meta.Subject, // Use English if available
       Messages: messages.filter(msg => msg.ThreadId === meta.Id),
     }));
 
@@ -58,7 +101,7 @@ export class NewsletterDataService {
       const threadAttachments = thread.Messages.flatMap(msg => msg.Attachments || []);
       if (threadAttachments.length > 0) {
         attachments.push({
-          threadSubject: thread.Subject,
+          threadSubject: thread.Subject, // Now using English subject
           attachments: threadAttachments,
         });
       }
@@ -88,13 +131,37 @@ export class NewsletterDataService {
   }
 
   /**
-   * Gets posts with attachments
+   * Gets posts with attachments (Phase 1 mode: last N days)
    */
   async getPostsWithAttachments(daysInPast: number): Promise<PostsWithAttachments> {
     logInfo('Fetching posts for newsletter', { daysInPast });
 
     const { start, end } = getDateRange(daysInPast, 0);
     const posts = await this.dataReader.getPosts(start, end);
+
+    return this.buildPostsResponse(posts);
+  }
+
+  /**
+   * Gets posts SINCE a specific timestamp (Phase 2 incremental mode)
+   * @param sinceTimestamp - Only fetch posts created after this timestamp
+   */
+  async getPostsWithAttachmentsSince(sinceTimestamp: string): Promise<PostsWithAttachments> {
+    logInfo('Fetching NEW posts since timestamp', { sinceTimestamp });
+
+    const start = new Date(sinceTimestamp);
+    const end = new Date(); // Now
+
+    const posts = await this.dataReader.getPosts(start, end);
+
+    logInfo(`Found ${posts.length} NEW posts since ${sinceTimestamp}`);
+    return this.buildPostsResponse(posts);
+  }
+
+  /**
+   * Helper to build posts response
+   */
+  private buildPostsResponse(posts: any[]): PostsWithAttachments {
 
     // Extract attachments
     const attachments: AttachmentGroup[] = [];

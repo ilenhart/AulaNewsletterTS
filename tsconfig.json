@@ -26,11 +26,15 @@
     "skipLibCheck": true,
     "typeRoots": [
       "./node_modules/@types"
-    ]
+    ],
+    "paths": {
+      "aula-apiclient-ts": ["../AulaAPIClient/dist/index.d.ts"]
+    }
   },
   "include": [
     "bin/**/*",
-    "lib/**/*"
+    "lib/**/*",
+    "src/**/*"
   ],
   "exclude": [
     "node_modules",

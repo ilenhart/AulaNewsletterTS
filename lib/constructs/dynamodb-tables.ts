@@ -20,12 +20,20 @@ export class DynamoDBTablesConstruct extends Construct {
   public readonly rawGalleryAlbumsTable: dynamodb.Table;
   public readonly rawDerivedEventsTable: dynamodb.Table;
 
-  // PARSED data tables (future use)
+  // PARSED data tables - translated content
   public readonly parsedPostsTable: dynamodb.Table;
+  public readonly parsedThreadMessagesTable: dynamodb.Table;
+  public readonly parsedThreadsTable: dynamodb.Table;
+
+  // DERIVED data tables - AI-extracted events
   public readonly derivedEventsFromPostsTable: dynamodb.Table;
+  public readonly derivedEventsFromMessagesTable: dynamodb.Table;
 
   // Attachments table
   public readonly aulaAttachmentsTable: dynamodb.Table;
+
+  // Newsletter snapshots table - stores daily generated newsletters
+  public readonly newsletterSnapshotsTable: dynamodb.Table;
 
   private readonly removalPolicy: cdk.RemovalPolicy;
 
@@ -96,17 +104,36 @@ export class DynamoDBTablesConstruct extends Construct {
       dynamodb.AttributeType.NUMBER
     );
 
-    // PARSED data tables (future use)
+    // PARSED data tables - translated content with caching
     this.parsedPostsTable = this.createTable(
       'PARSED_posts',
       'Id',
-      dynamodb.AttributeType.NUMBER
+      dynamodb.AttributeType.STRING
     );
 
-    this.derivedEventsFromPostsTable = this.createTable(
-      'DERIVED_EVENTS_FromPostsTable',
+    this.parsedThreadMessagesTable = this.createTable(
+      'PARSED_threadMessages',
       'Id',
-      dynamodb.AttributeType.NUMBER
+      dynamodb.AttributeType.STRING
+    );
+
+    this.parsedThreadsTable = this.createTable(
+      'PARSED_threads',
+      'Id',
+      dynamodb.AttributeType.STRING
+    );
+
+    // DERIVED data tables - AI-extracted events from posts and messages
+    this.derivedEventsFromPostsTable = this.createTable(
+      'DERIVED_EVENTS_FromPosts',
+      'Id',
+      dynamodb.AttributeType.STRING
+    );
+
+    this.derivedEventsFromMessagesTable = this.createTable(
+      'DERIVED_EVENTS_FromMessages',
+      'Id',
+      dynamodb.AttributeType.STRING
     );
 
     // Attachments table with GSI for querying by PostId or MessageId
@@ -140,6 +167,13 @@ export class DynamoDBTablesConstruct extends Construct {
       },
       projectionType: dynamodb.ProjectionType.ALL,
     });
+
+    // Newsletter snapshots table - stores daily newsletter cache
+    this.newsletterSnapshotsTable = this.createTable(
+      'NEWSLETTER_SNAPSHOTS',
+      'SnapshotDate',
+      dynamodb.AttributeType.STRING
+    );
   }
 
   /**
@@ -178,8 +212,12 @@ export class DynamoDBTablesConstruct extends Construct {
       this.rawGalleryAlbumsTable,
       this.rawDerivedEventsTable,
       this.parsedPostsTable,
+      this.parsedThreadMessagesTable,
+      this.parsedThreadsTable,
       this.derivedEventsFromPostsTable,
+      this.derivedEventsFromMessagesTable,
       this.aulaAttachmentsTable,
+      this.newsletterSnapshotsTable,
     ];
   }
 }

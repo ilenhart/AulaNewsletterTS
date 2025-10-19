@@ -1,6 +1,6 @@
 /**
  * Post processor
- * Processes and summarizes school posts
+ * Processes and summarizes school posts (now using pre-translated PARSED data)
  */
 
 import { AulaPost } from '../../../common/types';
@@ -13,33 +13,29 @@ export interface ProcessedPosts {
 }
 
 /**
- * Processes posts: translates and summarizes
+ * Processes posts: generates summary from pre-translated content
+ * NOTE: Posts are expected to already contain English translations from PARSED_posts
  */
 export class PostProcessor {
   constructor(private readonly bedrockService: BedrockService) {}
 
   /**
-   * Processes posts: translates content and generates summary
+   * Processes posts: generates summary from already-translated content
+   * @param posts - Posts with content already translated to English
    */
   async process(posts: AulaPost[]): Promise<ProcessedPosts> {
     if (posts.length === 0) {
       return { summary: 'No posts in this period.', translatedPosts: [] };
     }
 
-    logInfo(`Processing ${posts.length} posts`);
+    logInfo(`Processing ${posts.length} posts (using pre-translated content)`);
 
-    // Translate posts
-    for (const post of posts) {
-      const translatePrompt = `Post title: ${post.Title}\nPost content: ${post.Content}`;
-      post.Content = await this.bedrockService.translate(translatePrompt);
-    }
-
-    // Build summary text
+    // Build summary text from already-translated posts
     let summaryText = `We have ${posts.length} posts:\n\n`;
     posts.forEach(post => {
       summaryText += `Post: ${post.Title}\n`;
       summaryText += `Author: ${post.Author} (${post.AuthorRole})\n`;
-      summaryText += `Content: ${post.Content}\n`;
+      summaryText += `Content: ${post.Content}\n`;  // Already in English from PARSED_posts
       summaryText += `Timestamp: ${post.Timestamp}\n\n`;
     });
 

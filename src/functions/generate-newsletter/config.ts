@@ -31,6 +31,9 @@ export interface NewsletterConfig {
   bedrock: {
     modelId: string;
   };
+  behavior: {
+    generateIfNothingNew: boolean; // Generate newsletter even if no new content
+  };
   attachments?: AttachmentsConfig;
 }
 
@@ -77,12 +80,23 @@ export function getConfig(): NewsletterConfig {
       bookListTable: getEnvString('BOOK_LIST_TABLE', 'RAW_bookList'),
       galleryAlbumsTable: getEnvString('GALLERY_ALBUMS_TABLE', 'RAW_galleryAlbums'),
       derivedEventsTable: getEnvString('DERIVED_EVENTS_TABLE', 'RAW_derivedEvents'),
+      // PARSED tables - translated content with caching
+      parsedPostsTable: getEnvString('PARSED_POSTS_TABLE', 'PARSED_posts'),
+      parsedThreadMessagesTable: getEnvString('PARSED_THREAD_MESSAGES_TABLE', 'PARSED_threadMessages'),
+      parsedThreadsTable: getEnvString('PARSED_THREADS_TABLE', 'PARSED_threads'),
+      // DERIVED tables - AI-extracted events
+      derivedEventsFromPostsTable: getEnvString('DERIVED_EVENTS_FROM_POSTS_TABLE', 'DERIVED_EVENTS_FromPosts'),
+      derivedEventsFromMessagesTable: getEnvString('DERIVED_EVENTS_FROM_MESSAGES_TABLE', 'DERIVED_EVENTS_FromMessages'),
+      // Newsletter snapshots
+      newsletterSnapshotsTable: getEnvString('NEWSLETTER_SNAPSHOTS_TABLE', 'NEWSLETTER_SNAPSHOTS'),
     },
     dataRetrieval: {
+      // NOTE: These values are ONLY used in FULL MODE (first run, no previous snapshot)
+      // In INCREMENTAL MODE, the system fetches data since the last GeneratedAt timestamp
       threadMessagesDaysInPast: getEnvInt('THREADMESSAGES_DAYS_IN_PAST', 30),
-      calendarEventsDaysInPast: getEnvInt('CALENDAR_EVENTS_DAYS_IN_PAST', 3),
+      calendarEventsDaysInPast: getEnvInt('CALENDAR_EVENTS_DAYS_IN_PAST', 7),
       calendarEventsDaysInFuture: getEnvInt('CALENDAR_EVENTS_DAYS_IN_FUTURE', 7),
-      postsDaysInPast: getEnvInt('POSTS_DAYS_IN_PAST', 3),
+      postsDaysInPast: getEnvInt('POSTS_DAYS_IN_PAST', 30),
     },
     email: {
       fromAddress: getEnvString('EMAIL_FROM_ADDRESS'),
@@ -95,6 +109,9 @@ export function getConfig(): NewsletterConfig {
     },
     bedrock: {
       modelId: getEnvString('BEDROCK_MODEL_ID', 'anthropic.claude-3-sonnet-20240229-v1:0'),
+    },
+    behavior: {
+      generateIfNothingNew: getEnvString('GENERATE_NEWSLETTER_IF_NOTHING_NEW', 'false').toLowerCase() === 'true',
     },
     attachments,
   };

@@ -25,14 +25,16 @@ export class ApiGatewayConstruct extends Construct {
     // Create REST API
     this.api = new apigateway.RestApi(this, 'AulaSessionApi', {
       restApiName: 'Aula Session Management API',
-      description: 'API for managing Aula session IDs',
+      description: 'API for managing Aula session IDs (v2 - no auth)',
       deployOptions: {
         stageName: 'prod',
         throttlingRateLimit: 100,
         throttlingBurstLimit: 200,
-        loggingLevel: apigateway.MethodLoggingLevel.INFO,
-        dataTraceEnabled: true,
+        // Disable CloudWatch logging (requires account-level CloudWatch Logs role)
+        // loggingLevel: apigateway.MethodLooogingLevel.OFF,
+        // dataTraceEnabled: false,
         metricsEnabled: true,
+        description: 'Deployment with NONE authorization',
       },
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
@@ -62,7 +64,9 @@ export class ApiGatewayConstruct extends Construct {
     const sessionIdResource = apiResource.addResource('sessionID');
 
     // Add GET method
+    // Use NONE authorization - Lambda handles authentication via X-aulasession-authenticate header
     sessionIdResource.addMethod('GET', lambdaIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE,
       methodResponses: [
         {
           statusCode: '200',
@@ -92,7 +96,9 @@ export class ApiGatewayConstruct extends Construct {
     });
 
     // Add POST method
+    // Use NONE authorization - Lambda handles authentication via X-aulasession-authenticate header
     sessionIdResource.addMethod('POST', lambdaIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE,
       methodResponses: [
         {
           statusCode: '200',

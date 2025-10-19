@@ -4,7 +4,7 @@
 
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { AulaSession } from '../../common/types';
-import { logInfo, logError, oneHourFromNow } from '../../common/utils';
+import { logInfo, logError, oneYearFromNow } from '../../common/utils';
 
 export class SessionManager {
   private static readonly SESSION_RECORD_ID = 1;
@@ -71,7 +71,7 @@ export class SessionManager {
         ? now
         : (existingSession?.created || now);
 
-      const ttl = oneHourFromNow();
+      const ttl = oneYearFromNow();
       const session: AulaSession = {
         Id: SessionManager.SESSION_RECORD_ID,
         sessionId,

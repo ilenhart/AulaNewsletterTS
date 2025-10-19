@@ -10,7 +10,8 @@
 
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { createDynamoDBDocClient } from '../../common/aws/dynamodb-client';
-import { logInfo, logError } from '../../common/utils';
+import { logInfo, logError, logWarn } from '../../common/utils';
+import { isValidSessionId, getSessionIdErrorMessage } from '../../common/session-validation';
 import { loadConfig } from './config';
 import { validateAuthToken, createUnauthorizedResponse } from './auth';
 import { SessionManager } from './session-manager';
@@ -141,7 +142,7 @@ async function handlePostSession(
       };
     }
 
-    // Validate sessionId
+    // Validate sessionId exists and is a string
     if (!requestBody.sessionId || typeof requestBody.sessionId !== 'string') {
       return {
         statusCode: 400,
@@ -152,6 +153,26 @@ async function handlePostSession(
         body: JSON.stringify({
           error: 'Bad Request',
           message: 'sessionId is required and must be a string',
+        }),
+      };
+    }
+
+    // Validate sessionId format (32 lowercase alphanumeric characters)
+    if (!isValidSessionId(requestBody.sessionId)) {
+      const errorMessage = getSessionIdErrorMessage(requestBody.sessionId);
+      logWarn('Invalid session ID format provided', {
+        sessionIdLength: requestBody.sessionId.length,
+        errorMessage,
+      });
+      return {
+        statusCode: 400,
+        headers: {
+          'Content-Type': 'application/json',
+          ...CORS_HEADERS,
+        },
+        body: JSON.stringify({
+          error: 'Bad Request',
+          message: errorMessage,
         }),
       };
     }

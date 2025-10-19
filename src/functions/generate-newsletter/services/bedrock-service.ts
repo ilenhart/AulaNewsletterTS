@@ -1,14 +1,18 @@
 /**
  * Bedrock AI service for translation and summarization
+ * Now uses centralized BedrockPrompts for all prompt generation
  */
 
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { logInfo, logError, BedrockError } from '../../../common/utils';
+import { BedrockPrompts } from './bedrock-prompts';
 
 /**
  * Service for AI translation and summarization using Amazon Bedrock
  */
 export class BedrockService {
+  private readonly prompts: BedrockPrompts;
+
   constructor(
     private readonly client: BedrockRuntimeClient,
     private readonly modelId: string,
@@ -17,26 +21,21 @@ export class BedrockService {
       parentNames: string;
       messageFamilyNames: string;
     }
-  ) {}
+  ) {
+    // Initialize centralized prompts with context
+    this.prompts = new BedrockPrompts({
+      parentNames: systemContext.parentNames,
+      childName: systemContext.childName,
+      messageFamilyNames: systemContext.messageFamilyNames,
+    });
+  }
 
   /**
    * Generates system prompt with personalization context
+   * Now delegated to centralized BedrockPrompts class
    */
   private generateSystemPrompt(): string {
-    let prompt = '';
-    prompt += 'You are a helper charged with collecting information from the Aula school system. ';
-    prompt += 'The aula system is a school management system that is used by the school to manage the school\'s data. ';
-    prompt += 'I am a parent retrieving information about my child\'s activities in different ways. ';
-    prompt += `As parents, our names are ${this.systemContext.parentNames} and should be considered as part of your evaluation of this content. `;
-    prompt += `Our child name is ${this.systemContext.childName}, for reference if the child is mentioned. `;
-    prompt += 'When considering action items and todos, keep in mind which parent we are, and who our child is.\n';
-    prompt += 'Whenever possible, we want to preserve date information, particularly for upcoming events that might be mentioned, as well as location. ';
-    prompt += `We also want to pay close attention to events, threads, posts or messages that mention one of our flagged family names: ${this.systemContext.messageFamilyNames}.\n`;
-    prompt += 'DO NOT HALLUCINATE OR VOLUNTEER ANY INFORMATION NOT SUGGESTED IN THE SOURCE.\n';
-    prompt += 'EXTREMELY IMPORTANT: The source information from Aula is in almost all cases written in the Danish language. ';
-    prompt += 'However, we want the outputted information from this to be in English. ';
-    prompt += 'ALL GENERATED OUTPUTS MUST BE IN THE ENGLISH LANGUAGE, *NOT* DANISH\n';
-    return prompt;
+    return this.prompts.getSystemPrompt();
   }
 
   /**
@@ -68,65 +67,78 @@ export class BedrockService {
   }
 
   /**
+   * Removes common XML/HTML wrapper tags from AI responses
+   * Sometimes Claude wraps responses in tags despite instructions not to
+   */
+  private stripWrapperTags(text: string): string {
+    // Remove common wrapper tags like <translation>, <result>, <output>, etc.
+    let cleaned = text.trim();
+
+    // Remove opening and closing tags for common wrappers
+    const wrapperPatterns = [
+      /^<translation>\s*/i,
+      /\s*<\/translation>$/i,
+      /^<result>\s*/i,
+      /\s*<\/result>$/i,
+      /^<output>\s*/i,
+      /\s*<\/output>$/i,
+      /^<response>\s*/i,
+      /\s*<\/response>$/i,
+      /^<text>\s*/i,
+      /\s*<\/text>$/i,
+    ];
+
+    wrapperPatterns.forEach(pattern => {
+      cleaned = cleaned.replace(pattern, '');
+    });
+
+    return cleaned.trim();
+  }
+
+  /**
    * Translates text from Danish to English
+   * Now uses centralized prompts and strips wrapper tags
    */
   async translate(text: string, context?: string): Promise<string> {
-    let prompt = 'The following text is in Danish. Translate it to English.\n';
-    if (context) {
-      prompt += `Context: ${context}\n`;
-    }
-    prompt += `Text: ${text}\n`;
-
-    return await this.invoke(prompt);
+    const prompt = this.prompts.getTranslationPrompt(text, context);
+    const result = await this.invoke(prompt);
+    return this.stripWrapperTags(result);
   }
 
   /**
    * Generates a summary with system context
+   * Now uses centralized prompts
    */
   async summarize(content: string, instructions: string): Promise<string> {
-    const prompt = this.generateSystemPrompt() + '\n' + instructions + '\n\n' + content;
+    const prompt = this.prompts.getSummarizationPrompt(content, instructions);
     return await this.invoke(prompt);
   }
 
   /**
    * Translates and summarizes in one call
+   * Now uses centralized prompts
    */
   async translateAndSummarize(content: string, instructions: string): Promise<string> {
-    let prompt = this.generateSystemPrompt() + '\n';
-    prompt += 'The content below is in Danish. Translate and summarize it according to these instructions:\n';
-    prompt += instructions + '\n\n';
-    prompt += content;
-
+    const prompt = this.prompts.getTranslateAndSummarizePrompt(content, instructions);
     return await this.invoke(prompt);
   }
 
   /**
-   * Generates final consolidated summary
+   * Generates final consolidated summary as JSON
+   * Now uses centralized prompts and returns structured JSON
    */
   async generateFinalSummary(sections: {
     overview?: string;
     threads?: string;
     calendar?: string;
     posts?: string;
+    derivedEvents?: string;
+    upcomingEvents?: string; // NEW: Unified events from all sources
+    importantInfo?: string;   // NEW: Critical non-event information
+    generalReminders?: string; // NEW: General reminders and non-critical actionable items
+    weeklyHighlights?: string; // NEW: Stories and activities from the week
   }): Promise<string> {
-    let prompt = 'You are a friendly assistant summarizing school information for parents.\n';
-    prompt += `Parent names: ${this.systemContext.parentNames}\n`;
-    prompt += `Child name: ${this.systemContext.childName}\n`;
-    prompt += 'Provide a concise summary of important events, action items, and upcoming activities.\n\n';
-
-    if (sections.overview) {
-      prompt += `OVERVIEW: ${sections.overview}\n===\n`;
-    }
-    if (sections.threads) {
-      prompt += `THREAD MESSAGES: ${sections.threads}\n===\n`;
-    }
-    if (sections.calendar) {
-      prompt += `CALENDAR EVENTS: ${sections.calendar}\n===\n`;
-    }
-    if (sections.posts) {
-      prompt += `POSTS: ${sections.posts}\n`;
-    }
-
+    const prompt = this.prompts.getFinalSummaryPrompt(sections);
     return await this.invoke(prompt);
   }
 }

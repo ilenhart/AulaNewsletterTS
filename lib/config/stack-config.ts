@@ -62,6 +62,9 @@ export interface LambdaConfiguration {
   getAulaTimeout: number;
   generateNewsletterTimeout: number;
   keepSessionAliveTimeout: number;
+
+  // Newsletter generation behavior
+  generateNewsletterIfNothingNew: boolean;
 }
 
 /**
@@ -185,11 +188,13 @@ export function loadConfiguration(): StackConfiguration {
       messageFamilyNamesToFlag: getEnv('MESSAGE_FAMILY_NAMES_TO_FLAG', ''),
       parentMailboxIds: getEnv('PARENT_MAILBOX_IDS', '0,0'),
 
-      // Numeric configurations for data retrieval
-      threadMessagesDaysInPast: getEnvNumber('THREADMESSAGES_DAYS_IN_PAST', 3),
-      calendarEventsDaysInPast: getEnvNumber('CALENDAR_EVENTS_DAYS_IN_PAST', 3),
+      // Numeric configurations for data retrieval (GenerateNewsletter Lambda)
+      // NOTE: These values are ONLY used in FULL MODE (first run, no previous snapshot)
+      // In INCREMENTAL MODE, the system fetches data since the last GeneratedAt timestamp
+      threadMessagesDaysInPast: getEnvNumber('THREADMESSAGES_DAYS_IN_PAST', 30),
+      calendarEventsDaysInPast: getEnvNumber('CALENDAR_EVENTS_DAYS_IN_PAST', 7),
       calendarEventsDaysInFuture: getEnvNumber('CALENDAR_EVENTS_DAYS_IN_FUTURE', 7),
-      postsDaysInPast: getEnvNumber('POSTS_DAYS_IN_PAST', 3),
+      postsDaysInPast: getEnvNumber('POSTS_DAYS_IN_PAST', 30),
 
       // GetAulaAndPersist specific
       threadMessagesDays: getEnvNumber('THREAD_MESSAGES_DAYS', 30),
@@ -202,6 +207,9 @@ export function loadConfiguration(): StackConfiguration {
       getAulaTimeout: getEnvNumber('GET_AULA_TIMEOUT', 900),
       generateNewsletterTimeout: getEnvNumber('GENERATE_NEWSLETTER_TIMEOUT', 900),
       keepSessionAliveTimeout: getEnvNumber('KEEP_SESSION_ALIVE_TIMEOUT', 60),
+
+      // Newsletter generation behavior
+      generateNewsletterIfNothingNew: getEnv('GENERATE_NEWSLETTER_IF_NOTHING_NEW', 'false').toLowerCase() === 'true',
     },
     stackProps: {
       environment,

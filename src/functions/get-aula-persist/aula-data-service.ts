@@ -65,8 +65,24 @@ export class AulaDataService {
       // Transform daily overview
       const dailyOverview = capitalizeKeys(rawDailyOverview);
 
-      // Transform gallery albums
-      const galleryAlbums = capitalizeKeys(rawGalleryAlbums);
+      // Transform gallery albums and fix null IDs
+      const galleryAlbums = capitalizeKeys(rawGalleryAlbums).map((album: any, index: number) => {
+        // Fix: Gallery albums can have Id: null for default "My Child" albums
+        // DynamoDB requires a valid numeric Id, so we generate a synthetic negative ID
+        if (album.Id === null || album.Id === undefined || album.Id === 0 || album.Id === -1) {
+          logInfo(`Gallery album has null/invalid Id, generating synthetic Id`, {
+            originalId: album.Id,
+            syntheticId: -(index + 1),
+            title: album.Title,
+          });
+          return {
+            ...album,
+            Id: -(index + 1), // Use negative IDs to avoid conflicts with real album IDs
+            IsDefaultMyChildAlbum: true,
+          };
+        }
+        return album;
+      });
 
       logInfo('Successfully retrieved and transformed all Aula data');
 

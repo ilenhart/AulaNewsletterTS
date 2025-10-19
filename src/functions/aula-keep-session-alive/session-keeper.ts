@@ -6,7 +6,8 @@
 import { AulaAPIClient, AulaClientConfig } from 'aula-apiclient-ts';
 import { DynamoDBSessionProvider } from '../../common/dynamodb/session-provider';
 import { AulaSession } from '../../common/types';
-import { logInfo, logError, AulaAPIError } from '../../common/utils';
+import { logInfo, logError, logWarn, AulaAPIError } from '../../common/utils';
+import { validateSessionId } from '../../common/session-validation';
 
 /**
  * Service for keeping Aula sessions alive
@@ -70,6 +71,26 @@ export class SessionKeeperService {
     try {
       // Retrieve full session record before attempting ping (for error context)
       this.currentSession = await this.retrieveSessionRecord();
+
+      // Validate session ID format
+      if (this.currentSession?.sessionId) {
+        try {
+          validateSessionId(this.currentSession.sessionId);
+          logInfo('Session ID validation passed');
+        } catch (error) {
+          logWarn('Session ID validation failed', {
+            sessionId: this.currentSession.sessionId.substring(0, 10) + '...',
+            error: error instanceof Error ? error.message : String(error),
+          });
+          throw new AulaAPIError(
+            `Invalid session ID in DynamoDB: ${error instanceof Error ? error.message : 'Unknown format error'}`,
+            { originalError: error }
+          );
+        }
+      } else {
+        logError('No session ID found in retrieved session record');
+        throw new AulaAPIError('No session ID available in DynamoDB');
+      }
 
       // Configure Aula client with session provider
       const config = new AulaClientConfig();

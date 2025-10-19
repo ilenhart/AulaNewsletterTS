@@ -43,21 +43,39 @@ export function transformThread(rawThread: any): AulaThread {
 
 /**
  * Transforms raw message data from Aula API to DynamoDB format
+ * Extracts text from text.html and capitalizes keys
  */
 export function transformMessage(rawMessage: any): AulaMessage {
   return {
     Id: String(rawMessage.id || rawMessage.Id),
     ThreadId: rawMessage.threadId || rawMessage.ThreadId,
+    MessageText: rawMessage.text?.html || rawMessage.MessageText || '',
+    SentDate: rawMessage.sendDateTime || rawMessage.SentDate,
+    Sender: rawMessage.sender ? {
+      FullName: rawMessage.sender.fullName || '',
+      Role: rawMessage.sender.mailBoxOwner?.portalRole || '',
+    } : (rawMessage.Sender || {
+      FullName: 'Unknown',
+      Role: 'Unknown',
+    }),
+    Attachments: rawMessage.attachments || rawMessage.Attachments || [],
     ...rawMessage,
   };
 }
 
 /**
  * Transforms raw post data from Aula API to DynamoDB format
+ * Extracts content from content.html and capitalizes keys
  */
 export function transformPost(rawPost: any): AulaPost {
   return {
     Id: rawPost.id || rawPost.Id,
+    Title: rawPost.title || rawPost.Title || '',
+    Content: rawPost.content?.html || rawPost.Content || '',
+    Timestamp: rawPost.timestamp || rawPost.Timestamp,
+    Author: rawPost.ownerProfile?.fullName || rawPost.Author || '',
+    AuthorRole: rawPost.ownerProfile?.role || rawPost.AuthorRole || '',
+    Attachments: rawPost.attachments || rawPost.Attachments || [],
     ...rawPost,
   };
 }

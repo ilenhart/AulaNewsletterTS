@@ -194,7 +194,7 @@ curl -H "X-aulasession-authenticate: your-token" \
 curl -X POST \
   -H "X-aulasession-authenticate: your-token" \
   -H "Content-Type: application/json" \
-  -d '{"sessionId":"o9636vs1olkdh5ft6p84hrl7biumb7m2"}' \
+  -d '{"sessionId":"o9636bvs1olkdh5ft6p84hrl7biumb7m2"}' \
   https://your-api-id.execute-api.region.amazonaws.com/prod/api/sessionID
 ```
 
@@ -378,11 +378,13 @@ PARENT_NAMES=Parent Names                 # Comma-separated parent names
 MESSAGE_FAMILY_NAMES_TO_FLAG=             # Names to highlight in messages
 PARENT_MAILBOX_IDS=0,0                   # Comma-separated mailbox IDs
 
-# Data Retrieval (Newsletter)
-THREADMESSAGES_DAYS_IN_PAST=3            # Days to retrieve messages
-CALENDAR_EVENTS_DAYS_IN_PAST=3           # Past days for calendar
-CALENDAR_EVENTS_DAYS_IN_FUTURE=7         # Future days for calendar
-POSTS_DAYS_IN_PAST=3                     # Days to retrieve posts
+# Data Retrieval (Newsletter - FULL MODE ONLY)
+# NOTE: These values are ONLY used when no previous snapshot exists (first run)
+# In incremental mode, data is fetched since the last newsletter GeneratedAt timestamp
+THREADMESSAGES_DAYS_IN_PAST=30           # Days to retrieve messages (first run only)
+CALENDAR_EVENTS_DAYS_IN_PAST=7           # Past days for calendar (always used)
+CALENDAR_EVENTS_DAYS_IN_FUTURE=7         # Future days for calendar (always used)
+POSTS_DAYS_IN_PAST=30                    # Days to retrieve posts (first run only)
 
 # Data Retrieval (GetAulaAndPersist)
 THREAD_MESSAGES_DAYS=30                  # Days to retrieve thread messages

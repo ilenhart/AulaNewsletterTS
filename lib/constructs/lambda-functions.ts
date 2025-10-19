@@ -84,10 +84,27 @@ export class LambdaFunctionsConstruct extends Construct {
       ],
     });
 
-    // Grant DynamoDB read-only permissions
-    tables.getAllTables().forEach(table => {
-      table.grantReadData(this.generateNewsletterRole);
-    });
+    // Grant DynamoDB read-only permissions to RAW tables
+    tables.rawDailyOverviewTable.grantReadData(this.generateNewsletterRole);
+    tables.rawThreadsTable.grantReadData(this.generateNewsletterRole);
+    tables.rawThreadMessagesTable.grantReadData(this.generateNewsletterRole);
+    tables.rawCalendarEventsTable.grantReadData(this.generateNewsletterRole);
+    tables.rawPostsTable.grantReadData(this.generateNewsletterRole);
+    tables.rawWeekOverviewTable.grantReadData(this.generateNewsletterRole);
+    tables.rawBookListTable.grantReadData(this.generateNewsletterRole);
+    tables.rawGalleryAlbumsTable.grantReadData(this.generateNewsletterRole);
+    tables.rawDerivedEventsTable.grantReadData(this.generateNewsletterRole);
+    tables.aulaAttachmentsTable.grantReadData(this.generateNewsletterRole);
+
+    // Grant DynamoDB read/write permissions to PARSED and DERIVED tables (for caching)
+    tables.parsedPostsTable.grantReadWriteData(this.generateNewsletterRole);
+    tables.parsedThreadMessagesTable.grantReadWriteData(this.generateNewsletterRole);
+    tables.parsedThreadsTable.grantReadWriteData(this.generateNewsletterRole);
+    tables.derivedEventsFromPostsTable.grantReadWriteData(this.generateNewsletterRole);
+    tables.derivedEventsFromMessagesTable.grantReadWriteData(this.generateNewsletterRole);
+
+    // Grant DynamoDB read/write permissions to newsletter snapshots table (for incremental generation)
+    tables.newsletterSnapshotsTable.grantReadWriteData(this.generateNewsletterRole);
 
     // Grant S3 read permissions for attachments
     buckets.attachmentsBucket.grantRead(this.generateNewsletterRole);
@@ -120,8 +137,9 @@ export class LambdaFunctionsConstruct extends Construct {
     }));
 
     // Common environment variables
+    // Note: AWS_REGION is automatically set by Lambda runtime
+    // Lambdas automatically use their IAM role for credentials
     const commonEnv = {
-      AWS_REGION_OVERRIDE: cdk.Stack.of(this).region,
       PARENT_FIRSTNAME: config.parentFirstName,
       CHILD_FIRSTNAME: config.childFirstName,
       MESSAGE_FAMILY_NAMES_TO_FLAG: config.messageFamilyNamesToFlag,
@@ -141,16 +159,11 @@ export class LambdaFunctionsConstruct extends Construct {
       minify: false,  // Keep readable for debugging; set to true for production
       sourceMap: true,
       target: 'es2022',
-      externalModules: [
-        'aws-sdk',  // Provided by Lambda runtime
-        '@aws-sdk/client-bedrock-runtime',
-        '@aws-sdk/client-dynamodb',
-        '@aws-sdk/client-ses',
-        '@aws-sdk/lib-dynamodb',
-        '@aws-sdk/client-s3',
-      ],
-      // aula-apiclient-ts is bundled directly since it's a symlinked local dependency
-      nodeModules: ['aula-apiclient-ts'],  // Bundle this module instead of treating as external
+      // Bundle all dependencies including AWS SDK v3 and aula-apiclient-ts
+      // Node.js 18.x does not include AWS SDK in the Lambda runtime environment
+      // We bundle all packages to ensure they're available at runtime
+      // aula-apiclient-ts is a symlinked dependency and will be bundled directly into the code
+      externalModules: [],  // No external modules - bundle everything including aula-apiclient-ts
       forceDockerBundling: false,  // Use local esbuild instead of Docker
     };
 
@@ -199,8 +212,18 @@ export class LambdaFunctionsConstruct extends Construct {
         CALENDAR_EVENTS_DAYS_IN_PAST: config.calendarEventsDaysInPast.toString(),
         CALENDAR_EVENTS_DAYS_IN_FUTURE: config.calendarEventsDaysInFuture.toString(),
         POSTS_DAYS_IN_PAST: config.postsDaysInPast.toString(),
+        GENERATE_NEWSLETTER_IF_NOTHING_NEW: config.generateNewsletterIfNothingNew.toString(),
         ATTACHMENTS_BUCKET: buckets.attachmentsBucket.bucketName,
         ATTACHMENTS_TABLE: tables.aulaAttachmentsTable.tableName,
+        // PARSED tables - translated content with caching
+        PARSED_POSTS_TABLE: tables.parsedPostsTable.tableName,
+        PARSED_THREAD_MESSAGES_TABLE: tables.parsedThreadMessagesTable.tableName,
+        PARSED_THREADS_TABLE: tables.parsedThreadsTable.tableName,
+        // DERIVED tables - AI-extracted events
+        DERIVED_EVENTS_FROM_POSTS_TABLE: tables.derivedEventsFromPostsTable.tableName,
+        DERIVED_EVENTS_FROM_MESSAGES_TABLE: tables.derivedEventsFromMessagesTable.tableName,
+        // Newsletter snapshots
+        NEWSLETTER_SNAPSHOTS_TABLE: tables.newsletterSnapshotsTable.tableName,
       },
       bundling: commonBundling,
     });
@@ -214,7 +237,6 @@ export class LambdaFunctionsConstruct extends Construct {
       timeout: cdk.Duration.seconds(config.keepSessionAliveTimeout),
       description: 'Keeps Aula session alive by pinging the API and sends alerts on failure',
       environment: {
-        AWS_REGION_OVERRIDE: cdk.Stack.of(this).region,
         AULA_SESSION_ID_TABLE: tables.aulaSessionIdTable.tableName,
         API_URL: config.apiUrl,
         EMAIL_FROM_ADDRESS: config.emailFromAddress,
@@ -244,7 +266,6 @@ export class LambdaFunctionsConstruct extends Construct {
       timeout: cdk.Duration.seconds(30),
       description: 'API handler for managing Aula session IDs via REST API',
       environment: {
-        AWS_REGION_OVERRIDE: cdk.Stack.of(this).region,
         TABLE_NAME: tables.aulaSessionIdTable.tableName,
         AULASESSION_AUTHENTICATE_TOKEN: config.aulaSessionAuthenticateToken,
       },

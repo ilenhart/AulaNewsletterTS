@@ -39,12 +39,12 @@ export class DynamoDBManager {
   }
 
   /**
-   * Calculates TTL timestamp for one month from now
+   * Calculates TTL timestamp for two months from now
    */
-  private oneMonthFromNow(): number {
+  private twoMonthsFromNow(): number {
     const now = new Date();
     const future = new Date(now);
-    future.setMonth(future.getMonth() + 1);
+    future.setMonth(future.getMonth() + 2);
     return Math.floor(future.getTime() / 1000);
   }
 
@@ -54,7 +54,7 @@ export class DynamoDBManager {
    */
   private async saveItemConditional(tableName: string, item: any): Promise<boolean> {
     try {
-      const itemWithTTL = { ...item, ttl: this.oneMonthFromNow() };
+      const itemWithTTL = { ...item, ttl: this.twoMonthsFromNow() };
 
       await this.docClient.send(
         new PutCommand({
@@ -92,7 +92,7 @@ export class DynamoDBManager {
     for (const batch of batches) {
       try {
         // Add TTL to all items
-        const itemsWithTTL = batch.map(item => ({ ...item, ttl: this.oneMonthFromNow() }));
+        const itemsWithTTL = batch.map(item => ({ ...item, ttl: this.twoMonthsFromNow() }));
 
         // Create put requests (note: batch write doesn't support ConditionExpression)
         // We'll use individual puts with conditions for smaller batches
@@ -198,14 +198,55 @@ export class DynamoDBManager {
     WorkPlan: { Weeks: any[] };
     BookList: { Weeks: any[] };
   }): Promise<{ workPlan: SaveResult; bookList: SaveResult }> {
-    logInfo('Saving MeeBook data', {
-      workPlanWeeks: meeBookData.WorkPlan.Weeks.length,
-      bookListWeeks: meeBookData.BookList.Weeks.length,
+    // Fix: WorkPlan.Weeks is an array of WeekPlanOverviewList objects
+    // Each WeekPlanOverviewList is itself an array of WeekPlanOverview items
+    // We need to flatten to get individual WeekPlanOverview objects with Id fields
+    const workPlanItems = meeBookData.WorkPlan.Weeks.flatMap((weekList: any) => {
+      // If weekList is an array (WeekPlanOverviewList), return its items
+      // Otherwise, if it's already a single object, wrap it in an array
+      if (Array.isArray(weekList)) {
+        return weekList;
+      }
+      return [weekList];
+    }).filter((item: any) => {
+      // Filter out items without Id field
+      if (!item || !item.Id) {
+        logWarn('Skipping work plan item without Id field', {
+          item: JSON.stringify(item).substring(0, 200),
+        });
+        return false;
+      }
+      return true;
+    });
+
+    // Fix: BookList.Weeks is an array of MeeWeeklyBooks objects
+    // Each MeeWeeklyBooks has an Id field and should be saved individually
+    const bookListItems = meeBookData.BookList.Weeks.flatMap((bookList: any) => {
+      // If bookList is an array, return its items
+      // Otherwise, if it's already a single object, wrap it in an array
+      if (Array.isArray(bookList)) {
+        return bookList;
+      }
+      return [bookList];
+    }).filter((item: any) => {
+      // Filter out items without Id field
+      if (!item || !item.Id) {
+        logWarn('Skipping book list item without Id field', {
+          item: JSON.stringify(item).substring(0, 200),
+        });
+        return false;
+      }
+      return true;
+    });
+
+    logInfo('Saving MeeBook data (flattened)', {
+      workPlanItems: workPlanItems.length,
+      bookListItems: bookListItems.length,
     });
 
     const [workPlanResult, bookListResult] = await Promise.all([
-      this.batchWriteItems(this.config.weekOverviewTable, meeBookData.WorkPlan.Weeks),
-      this.batchWriteItems(this.config.bookListTable, meeBookData.BookList.Weeks),
+      this.batchWriteItems(this.config.weekOverviewTable, workPlanItems),
+      this.batchWriteItems(this.config.bookListTable, bookListItems),
     ]);
 
     return {

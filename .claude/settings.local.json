@@ -21,7 +21,12 @@
       "Bash(else echo \"Not a git repo\")",
       "Bash(fi)",
       "Bash(npm install:*)",
-      "Bash(timeout 180 npx cdk synth:*)"
+      "Bash(timeout 180 npx cdk synth:*)",
+      "Bash(tee:*)",
+      "Bash(awk:*)",
+      "Bash(python:*)",
+      "Bash(npm test:*)",
+      "Bash(aws dynamodb scan:*)"
     ],
     "deny": [],
     "ask": []

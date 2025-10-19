@@ -59,9 +59,20 @@ export function getEnvBool(key: string, defaultValue: boolean = false): boolean 
 /**
  * Gets AWS configuration from environment variables
  * Returns region and optional credentials
+ *
+ * When running in AWS Lambda:
+ * - Automatically uses the Lambda's IAM role for credentials
+ * - Only sets region if AWS_REGION_OVERRIDE is provided
+ *
+ * When running locally:
+ * - Uses AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY if provided
+ * - Otherwise uses default AWS credentials chain (~/.aws/credentials)
  */
 export function getAwsConfig(): AWSConfig {
   const config: AWSConfig = {};
+
+  // Detect if running in AWS Lambda
+  const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.LAMBDA_TASK_ROOT;
 
   // Set region
   if (process.env.AWS_REGION_OVERRIDE) {
@@ -70,8 +81,9 @@ export function getAwsConfig(): AWSConfig {
     config.region = process.env.AWS_REGION;
   }
 
-  // Set credentials if provided (for local testing)
-  if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+  // Only set explicit credentials for local testing
+  // When running in Lambda, let SDK use IAM role automatically
+  if (!isLambda && process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
     config.credentials = {
       accessKeyId: process.env.AWS_ACCESS_KEY_ID,
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
