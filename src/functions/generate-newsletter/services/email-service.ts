@@ -173,7 +173,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
       items.forEach((item) => {
         const cssClass = this.getImportantInfoClass(item.type);
         html += `<div class="important-alert ${cssClass}">`;
-        html += `<div class="alert-type">${this.escapeHtml(item.type.replace('_', ' '))}`;
+        // Safely handle item.type which might be undefined
+        const typeDisplay = item.type ? item.type.replace('_', ' ') : 'information';
+        html += `<div class="alert-type">${this.escapeHtml(typeDisplay)}`;
         // Phase 3: Show NEW badge if item is new
         if (item.isNew) {
           html += '<span class="badge-new">New</span>';
@@ -464,7 +466,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
   /**
    * Escapes HTML special characters to prevent XSS
    */
-  private escapeHtml(text: string): string {
+  private escapeHtml(text: string | undefined): string {
+    if (!text) {
+      return '';
+    }
     const map: Record<string, string> = {
       '&': '&amp;',
       '<': '&lt;',

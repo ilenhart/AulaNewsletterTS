@@ -423,7 +423,10 @@ export class SnapshotMergeService {
    * @param title - Event title
    * @returns Normalized title
    */
-  private normalizeTitle(title: string): string {
+  private normalizeTitle(title: string | undefined): string {
+    if (!title) {
+      return '';
+    }
     return title.toLowerCase().trim().replace(/\s+/g, ' ');
   }
 
