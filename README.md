@@ -2,6 +2,35 @@
 
 This directory contains the AWS CDK infrastructure for the Aula Newsletter application - an automated newsletter system that fetches data from the Aula school management platform, stores it in DynamoDB, and generates AI-powered newsletter summaries using Amazon Bedrock (Claude AI).
 
+## Purpose
+
+This is a complete setup of a number of functions, but the main functionality is:
+- Keep track and persist valid sessionIDs from somewhere external (API Gateway, via ManageSessionID) (see related projects below for why this is)
+- Keep sessionIDs alive by periodically pinging to ensure it is alive (lambda: aula-keep-session-alive, via Eventbridge) (see related projects below for why this is)
+These are "helper" functions needed due to the way Aula controls access.
+
+But the **main** purpose of this project is the generation of a periodic emailed newsletter for a parent to receive.  This newsletter can be received on whatever schedule is desired, and it includes:
+- Any important events or reminders from Aula, from the threads/messages or posts that are created
+- Any calendar events
+- Any attachments (images/files) that were posted
+- And generally, just "what's going on lately".
+
+The intent of this project is because Aula itself can be very noisy, with parents and teachers creating posts and threads about things all the time.  As a busy parent, it can be involved to review Aula constantly to see what the latest is, so this newsletter is a "once daily" (or more if you want) summary of the very latest from Aula.  Naturally, once recieving the email, you can go directly to Aula to read more in detail about a particular message or post.
+
+Aula itself can be configured to send an emailed notification when there is a new message or post, but unfortunately that notification doesn't really contain any information, just a pointer to go find it on Aula.  So, this once daily newsletter is better because it contains all the relevant content in a combined way (rather than message by message as Aula itself does).
+
+In order to do this, this project pulls the latest messages and posts from Aula on a set schedule, and persists them to a secure database (get-aula-persist).  Then, on a separate schedule, a generate newsletter process runs (generate-newsletter), which examines the information in the secure database, summarizes, extracts reminders and implied events, and generally makes sense out of the whole thing.   Behind the scenes, this uses AI in Bedrock with the Claude model to do translation, summary, etc.
+
+By default, if there are no updates since the last time the newsletter process ran (no new messages or posts), then no newsletter is sent at all.  This is configurable, if you want to receive basically an empty or repeated email just for kicks. 
+
+Important to know, this process also translates the results into English (from Danish), so if you are looking to have the original Danish, that could be a configurable future feature request, or just change the prompts in this project accordingly.
+
+## Access to Aula
+
+It's important to know that in order to access Aula, you must have a valid sessionID.  This sessionID is stored in the AulaSessionID dynamoDB table, so it can always be used.  Where can you get this in the first place?  See the AulaLoginBrowserExtension mentioned below under related projects.   How can we ensure this session remains valid?  This project contains the AulaKeepSessionAlive lambda, which will ensure the session remains valid.
+
+So, as a first step, it is recommended you use the above browser extension in chrome, log into Aula with your MitID credentials, and then use the extension to persist the session.  This session process is functionally equivalent to keeping your browser open and refreshing it periodically, so there is no circumvention of security happening.  MitID is still **required** as part of this process.
+
 ## Architecture Overview
 
 The application uses a **four-Lambda architecture** with scheduled execution and REST API:
@@ -468,64 +497,7 @@ npx cdk synth
 # No manual compilation needed - esbuild handles bundling during cdk synth/deploy
 ```
 
-## Production Considerations
 
-Before deploying to production:
-
-1. **Remove hardcoded credentials**:
-   - Use AWS Secrets Manager or Parameter Store
-   - Update Lambda code to fetch secrets at runtime
-
-2. **Update Removal Policy**:
-   - Change `removalPolicy: cdk.RemovalPolicy.DESTROY` to `RETAIN` in `dynamodb-tables.ts`
-
-3. **Configure SES**:
-   - Verify email addresses in Amazon SES
-   - Request production access (move out of sandbox)
-
-4. **Add monitoring**:
-   - CloudWatch alarms for Lambda errors
-   - DynamoDB capacity monitoring
-   - Cost monitoring
-
-5. **Enable encryption**:
-   - Add KMS encryption to DynamoDB tables
-   - Encrypt Lambda environment variables
-
-6. **Tag resources**:
-   - Add cost allocation tags
-   - Add environment tags (prod/dev/test)
-
-## Troubleshooting
-
-### Deployment Fails
-- Ensure AWS credentials are configured: `aws configure`
-- Check CDK bootstrap: `cdk bootstrap`
-- Verify region configuration in `.env`
-
-### Lambda Timeout
-- Default timeout is 900s (15 min)
-- Check CloudWatch Logs for errors
-- Increase timeout if needed in `lambda-functions.ts`
-
-### Email Not Sending
-- Verify SES email addresses are verified
-- Check SES sandbox restrictions
-- Review CloudWatch Logs for SES errors
-
-### DynamoDB Access Denied
-- Verify IAM role has correct permissions
-- Check table names match environment variables
-- Review CloudWatch Logs for specific errors
-
-## Contributing
-
-When modifying the infrastructure:
-1. Make changes in the appropriate construct file
-2. Run `npm run build` to compile
-3. Run `cdk diff` to preview changes
-4. Test in a non-production environment first
-5. Update this README if adding new features
 
 ## License
 
