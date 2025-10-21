@@ -8,7 +8,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { S3Client } from '@aws-sdk/client-s3';
-import { AulaAPIClient, AulaClientConfig } from 'aula-apiclient-ts';
+import { AulaAPIClient, AulaClientConfig, AulaInvalidSessionError } from 'aula-apiclient-ts';
 import * as dotenv from 'dotenv';
 
 import { getConfig } from './config';
@@ -104,8 +104,29 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
 
     // Login to Aula
     logInfo('Logging into Aula API');
-    await aulaClient.Login();
-    logInfo('Successfully authenticated with Aula API');
+    try {
+      await aulaClient.Login();
+      logInfo('Successfully authenticated with Aula API');
+    } catch (error) {
+      // Handle specific AulaInvalidSessionError with detailed information
+      if (error instanceof AulaInvalidSessionError) {
+        logError('Aula session is invalid or expired during login', {
+          error: error.message,
+          httpStatus: error.httpStatus,
+          aulaStatusCode: error.aulaStatusCode,
+          aulaSubCode: error.aulaSubCode,
+          aulaMessage: error.aulaMessage,
+          aulaErrorInformation: error.aulaErrorInformation,
+        });
+        throw new LambdaError(
+          `Aula session is invalid or expired: ${error.message}. Please update the session ID.`,
+          403, // Forbidden - invalid or expired authentication
+          { originalError: error }
+        );
+      }
+      // Re-throw any other errors to be caught by outer handler
+      throw error;
+    }
 
     // Retrieve data from Aula
     logInfo('Retrieving data from Aula API');

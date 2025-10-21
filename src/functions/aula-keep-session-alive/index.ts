@@ -32,6 +32,9 @@ export const handler = async (
     firedAt: event.time,
   });
 
+  // Declare sessionKeeper outside try block so it's accessible in catch for failure reason
+  let sessionKeeper: SessionKeeperService | null = null;
+
   try {
     // Load configuration
     logInfo('Loading configuration from environment variables');
@@ -46,7 +49,7 @@ export const handler = async (
     const sessionProvider = new DynamoDBSessionProvider(docClient, config.sessionTableName);
 
     // Initialize session keeper service
-    const sessionKeeper = new SessionKeeperService(sessionProvider, config.apiUrl);
+    sessionKeeper = new SessionKeeperService(sessionProvider, config.apiUrl);
 
     // Keep session alive
     await sessionKeeper.keepSessionAlive();
@@ -86,16 +89,12 @@ export const handler = async (
         config.emailToAddresses
       );
 
-      // Get session context for the alert
-      const docClient = createDynamoDBDocClient();
-      const sessionProvider = new DynamoDBSessionProvider(docClient, config.sessionTableName);
-      const sessionKeeper = new SessionKeeperService(sessionProvider, config.apiUrl);
+      // Get session and failure reason from the sessionKeeper (if available)
+      const session = sessionKeeper?.getCurrentSession() || null;
+      const failureReason = sessionKeeper?.getFailureReason() || null;
 
-      // Retrieve session record for error context
-      const session = await sessionKeeper.retrieveSessionRecord();
-
-      // Send the alert email
-      await emailService.sendSessionExpiredAlert(session, error as Error);
+      // Send the alert email with failure reason
+      await emailService.sendSessionExpiredAlert(session, error as Error, failureReason);
       logInfo('Session expiration alert sent successfully');
     } catch (emailError) {
       // Don't fail the lambda if email sending fails - just log it

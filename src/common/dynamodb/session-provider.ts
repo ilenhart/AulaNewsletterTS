@@ -170,4 +170,107 @@ export class DynamoDBSessionProvider implements ISessionIdProvider {
       throw error;
     }
   }
+
+  /**
+   * Updates session after successful Aula API call
+   * - Sets lastUsedSuccessfully to current timestamp (always updated)
+   * - Clears lastUsedFailure (sets to null/undefined)
+   * Used by keep-session-alive lambda to track successful pings
+   */
+  async updateSessionSuccess(): Promise<void> {
+    try {
+      logInfo('Updating session success timestamp', { table: this.tableName });
+
+      const result = await this.docClient.send(
+        new GetCommand({
+          TableName: this.tableName,
+          Key: { Id: DynamoDBSessionProvider.SESSION_RECORD_ID },
+        })
+      );
+
+      if (!result.Item) {
+        logWarn('No session found to update');
+        return;
+      }
+
+      const session = result.Item as AulaSession;
+
+      const updatedSession: AulaSession = {
+        ...session,
+        lastUsedSuccessfully: new Date().toISOString(),
+        lastUsedFailure: undefined, // Clear failure timestamp on success
+      };
+
+      await this.docClient.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: updatedSession,
+        })
+      );
+
+      logInfo('Session success timestamp updated successfully', {
+        lastUsedSuccessfully: updatedSession.lastUsedSuccessfully,
+      });
+    } catch (error) {
+      logError('Error updating session success timestamp', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Updates session after failed Aula API call
+   * - Sets lastUsedFailure to current timestamp ONLY if currently null/undefined
+   * - This captures the FIRST failure time, not subsequent failures
+   * Used by keep-session-alive lambda to track when session first failed
+   */
+  async updateSessionFailure(): Promise<void> {
+    try {
+      logInfo('Updating session failure timestamp', { table: this.tableName });
+
+      const result = await this.docClient.send(
+        new GetCommand({
+          TableName: this.tableName,
+          Key: { Id: DynamoDBSessionProvider.SESSION_RECORD_ID },
+        })
+      );
+
+      if (!result.Item) {
+        logWarn('No session found to update');
+        return;
+      }
+
+      const session = result.Item as AulaSession;
+
+      // Only update if lastUsedFailure is not already set (capture first failure)
+      if (session.lastUsedFailure) {
+        logInfo('Session already has a failure timestamp, not updating', {
+          existingFailureTimestamp: session.lastUsedFailure,
+        });
+        return;
+      }
+
+      const updatedSession: AulaSession = {
+        ...session,
+        lastUsedFailure: new Date().toISOString(),
+      };
+
+      await this.docClient.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: updatedSession,
+        })
+      );
+
+      logInfo('Session failure timestamp updated successfully', {
+        lastUsedFailure: updatedSession.lastUsedFailure,
+      });
+    } catch (error) {
+      logError('Error updating session failure timestamp', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
 }

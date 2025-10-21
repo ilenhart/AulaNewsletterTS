@@ -21,6 +21,7 @@ import { BulkTranslationService } from './services/bulk-translation-service';
 import { BulkEventExtractionService } from './services/bulk-event-extraction-service';
 import { SnapshotMergeService } from './services/snapshot-merge-service';
 import { ContentChangeDetector } from './services/content-change-detector';
+import { ReminderCondenserService } from './services/reminder-condenser-service';
 import { OverviewProcessor } from './processors/overview-processor';
 import { ThreadProcessor } from './processors/thread-processor';
 import { CalendarProcessor } from './processors/calendar-processor';
@@ -360,6 +361,14 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
       derivedEvents: unifiedEventsResult.derivedEvents,
     });
 
+    // NEW: Condense reminders by grouping related items
+    logInfo('Condensing general reminders');
+    const reminderCondenser = new ReminderCondenserService(bedrockService);
+    const condensedReminders = await reminderCondenser.condenseReminders(
+      importantInfoResult.remindersSummary
+    );
+    logInfo('Reminders condensed successfully');
+
     // Generate final summary JSON (with unified events and new sections)
     logInfo('Generating final summary with structured sections');
     const finalSummary = await bedrockService.generateFinalSummary({
@@ -368,7 +377,7 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
       upcomingEvents: unifiedEventsResult.summary, // Unified events (calendar + derived)
       posts: postResult.summary,
       importantInfo: importantInfoResult.importantSummary, // NEW: Critical information
-      generalReminders: importantInfoResult.remindersSummary, // NEW: Non-critical actionable items
+      generalReminders: condensedReminders, // NEW: Condensed reminders (grouped by topic/event)
       weeklyHighlights: weeklyHighlightsResult.summary, // NEW: Activity stories
     });
 

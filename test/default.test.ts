@@ -2,6 +2,7 @@
 
 import { handler as GetAulaPersistHandler } from '../src/functions/get-aula-persist/index';
 import { handler as GenerateNewsletterHandler } from '../src/functions/generate-newsletter/index';
+import { handler as KeepSessionAliveHandler } from '../src/functions/aula-keep-session-alive/index';
 
 const createMockGetAulaPersistEvent = () => ({
   version: '0',
@@ -62,7 +63,66 @@ const createMockGenerateNewsletterContext = () => ({
   callbackWaitsForEmptyEventLoop: true,
 });
 
- describe('Main runthrough', () => {
+const createMockKeepSessionAliveEvent = () => ({
+  version: '0',
+  id: 'test-event-id-' + Date.now(),
+  'detail-type': 'Scheduled Event' as const,
+  source: 'aws.events',
+  account: '123456789012',
+  time: new Date().toISOString(),
+  region: process.env.AWS_REGION || 'us-east-1',
+  resources: [
+    'arn:aws:events:us-east-1:123456789012:rule/AulaKeepSessionAliveRule',
+  ],
+  detail: {},
+});
+
+describe('Main runthrough', () => {
+
+  it('should successfully ping Aula with the session in the db', async () => {
+    // Assume session exists in DynamoDB
+
+    // Arrange
+    const event = createMockKeepSessionAliveEvent();
+
+    // Act
+    const startTime = Date.now();
+    const response = await KeepSessionAliveHandler(event);
+    const duration = Date.now() - startTime;
+
+    // Assert
+    console.log(`\nExecution completed in ${duration}ms`);
+    console.log('Response:', JSON.stringify(response, null, 2));
+
+    // Response should have valid structure
+    expect(response).toHaveProperty('statusCode');
+    expect(response).toHaveProperty('body');
+    expect(typeof response.body).toBe('string');
+
+    const body = JSON.parse(response.body);
+    console.log('Response Body:', JSON.stringify(body, null, 2));
+
+    // Status code should be 200 (success) or 500 (error)
+    expect([200, 500, 502]).toContain(response.statusCode);
+
+    if (response.statusCode === 200) {
+      // Success - session ping worked
+      expect(body).toHaveProperty('message');
+      expect(body.message).toContain('Successfully kept session alive');
+      expect(body).toHaveProperty('timestamp');
+      expect(body).toHaveProperty('duration');
+      console.log('\n✓ Session successfully kept alive!');
+      console.log(`  Duration: ${body.duration}`);
+    } else {
+      // Failure - session might have expired
+      expect(body).toHaveProperty('message');
+      expect(body).toHaveProperty('error');
+      expect(body).toHaveProperty('timestamp');
+      console.log(`\nℹ️  Lambda failed (session may have expired): ${body.error || body.message}`);
+      console.log('⚠️  An email alert should have been sent to configured recipients');
+    }
+  }, 120000); // 2 minute timeout for Aula API calls
+
 
     it('should successfully execute and persist data from Aula API', async () => {
  

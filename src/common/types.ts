@@ -110,6 +110,8 @@ export interface AulaSession {
   lastUpdated: string;
   ttl: number;
   created?: string; // ISO 8601 timestamp when this sessionId was first created
+  lastUsedSuccessfully?: string; // ISO 8601 timestamp when session was last used successfully
+  lastUsedFailure?: string; // ISO 8601 timestamp when session first failed (captures first failure only)
 }
 
 // ===== Configuration Types =====

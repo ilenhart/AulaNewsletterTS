@@ -26,7 +26,8 @@
       "Bash(awk:*)",
       "Bash(python:*)",
       "Bash(npm test:*)",
-      "Bash(aws dynamodb scan:*)"
+      "Bash(aws dynamodb scan:*)",
+      "Bash(aws dynamodb get-item --table-name AulaSessionIdTable --region eu-west-1 --key '{\"\"Id\"\":{\"\"N\"\":\"\"1\"\"}}')"
     ],
     "deny": [],
     "ask": []

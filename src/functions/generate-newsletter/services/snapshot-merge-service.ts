@@ -230,8 +230,9 @@ export class SnapshotMergeService {
   /**
    * Merge events from previous snapshot with new events
    * Phase 3: Detect changes and mark new/updated events
-   * - Combine both lists
-   * - Remove past events
+   * CRITICAL FIX: Filter past events BEFORE merging to prevent carrying forward old events
+   * - Remove past events from BOTH lists first
+   * - Combine only upcoming events
    * - Deduplicate based on title and date
    * - Detect changes (time, location, description updates)
    * @param previousEvents - Events from yesterday's snapshot
@@ -244,15 +245,32 @@ export class SnapshotMergeService {
     newEvents: NewsletterEvent[],
     today: Date
   ): NewsletterEvent[] {
-    // Phase 3: Mark previous events as NOT new
-    const previousWithFlags = previousEvents.map(e => ({
+    // CRITICAL FIX: Filter past events BEFORE merging
+    // This prevents past events from yesterday's snapshot from being carried forward
+    logInfo('Filtering past events before merging', {
+      previousCount: previousEvents.length,
+      newCount: newEvents.length,
+    });
+
+    const previousFiltered = this.filterPastEvents(previousEvents, today, false);
+    const newFiltered = this.filterPastEvents(newEvents, today, false);
+
+    logInfo('Past events filtered', {
+      previousRemaining: previousFiltered.length,
+      previousFiltered: previousEvents.length - previousFiltered.length,
+      newRemaining: newFiltered.length,
+      newFiltered: newEvents.length - newFiltered.length,
+    });
+
+    // Phase 3: Mark previous events as NOT new (only upcoming events from previous snapshot)
+    const previousWithFlags = previousFiltered.map(e => ({
       ...e,
       isNew: false,
       isUpdated: false,
     }));
 
     // Phase 3: Detect which new events are truly new vs updates
-    const newWithChangeDetection = newEvents.map(newEvent => {
+    const newWithChangeDetection = newFiltered.map(newEvent => {
       const existing = this.findMatchingEvent(previousWithFlags, newEvent);
 
       if (!existing) {
@@ -274,14 +292,11 @@ export class SnapshotMergeService {
       }
     });
 
-    // Combine all events
+    // Combine only upcoming events
     const allEvents = [...previousWithFlags, ...newWithChangeDetection];
 
-    // Filter out past events
-    const upcomingEvents = this.filterPastEvents(allEvents, today);
-
     // Deduplicate by title and date (keeps the version with most info)
-    const deduplicated = this.deduplicateEvents(upcomingEvents);
+    const deduplicated = this.deduplicateEvents(allEvents);
 
     // Sort by date (earliest first)
     deduplicated.sort((a, b) => {
@@ -359,29 +374,98 @@ export class SnapshotMergeService {
 
   /**
    * Filter out events that have already passed
+   * HYBRID APPROACH:
+   * - Events with time: Filter if date-time has passed
+   * - Events without time: Filter if date is today or past (conservative - assume past)
    * @param events - List of events
-   * @param today - Current date
-   * @returns Events that are today or in the future
+   * @param now - Current date-time
+   * @param includeTodayIfNoTime - If true, include all-day events from today (default: false)
+   * @returns Events that are in the future
    */
-  private filterPastEvents(events: NewsletterEvent[], today: Date): NewsletterEvent[] {
-    const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  private filterPastEvents(
+    events: NewsletterEvent[],
+    now: Date,
+    includeTodayIfNoTime: boolean = false
+  ): NewsletterEvent[] {
+    const nowTimestamp = now.getTime();
+    const todayDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     return events.filter((event) => {
       try {
         const eventDate = this.parseEventDate(event.date);
-        const eventDateOnly = new Date(
-          eventDate.getFullYear(),
-          eventDate.getMonth(),
-          eventDate.getDate()
-        );
 
-        // Keep events that are today or in the future
-        return eventDateOnly >= todayDateOnly;
+        if (event.time) {
+          // Event has specific time - parse full date-time and compare
+          try {
+            const eventDateTime = this.parseEventDateTime(event.date, event.time);
+            const isUpcoming = eventDateTime.getTime() > nowTimestamp;
+
+            if (!isUpcoming) {
+              logInfo('Filtering past event with time', {
+                eventTitle: event.title,
+                eventDate: event.date,
+                eventTime: event.time,
+                eventDateTime: eventDateTime.toISOString(),
+                now: now.toISOString(),
+              });
+            }
+
+            return isUpcoming;
+          } catch (timeParseError) {
+            // If time parsing fails, fall back to date-only comparison
+            logInfo('Could not parse event time, using date-only comparison', {
+              eventTitle: event.title,
+              eventTime: event.time,
+            });
+            const eventDateOnly = new Date(
+              eventDate.getFullYear(),
+              eventDate.getMonth(),
+              eventDate.getDate()
+            );
+            return eventDateOnly > todayDateOnly;
+          }
+        } else {
+          // Event has NO time - be conservative about filtering
+          const eventDateOnly = new Date(
+            eventDate.getFullYear(),
+            eventDate.getMonth(),
+            eventDate.getDate()
+          );
+
+          if (includeTodayIfNoTime) {
+            // Keep events that are today or future
+            const isUpcoming = eventDateOnly >= todayDateOnly;
+
+            if (!isUpcoming) {
+              logInfo('Filtering past all-day event', {
+                eventTitle: event.title,
+                eventDate: event.date,
+              });
+            }
+
+            return isUpcoming;
+          } else {
+            // Only keep events in the FUTURE (not today)
+            // Rationale: Without a time, we can't tell if it already happened today
+            const isUpcoming = eventDateOnly > todayDateOnly;
+
+            if (!isUpcoming) {
+              logInfo('Filtering all-day event (today or past)', {
+                eventTitle: event.title,
+                eventDate: event.date,
+                reason: eventDateOnly.getTime() === todayDateOnly.getTime() ? 'today-no-time' : 'past',
+              });
+            }
+
+            return isUpcoming;
+          }
+        }
       } catch (error) {
         // If we can't parse the date, keep the event to be safe
         logInfo('Could not parse event date, keeping event', {
           eventTitle: event.title,
           eventDate: event.date,
+          error: error instanceof Error ? error.message : String(error),
         });
         return true;
       }
@@ -457,6 +541,49 @@ export class SnapshotMergeService {
     if (isNaN(date.getTime())) {
       throw new Error(`Invalid date format: ${dateStr}`);
     }
+
+    return date;
+  }
+
+  /**
+   * Parse event date and time into a single Date object
+   * Handles various time formats: "14:00", "2:00 PM", "14:00:00"
+   * @param dateStr - Date string (YYYY-MM-DD)
+   * @param timeStr - Time string (HH:MM or H:MM AM/PM)
+   * @returns Parsed date-time
+   */
+  private parseEventDateTime(dateStr: string, timeStr: string): Date {
+    const date = this.parseEventDate(dateStr);
+
+    // Parse time string
+    const timeLower = timeStr.toLowerCase().trim();
+    let hours = 0;
+    let minutes = 0;
+
+    // Check for AM/PM format
+    const isPM = timeLower.includes('pm');
+    const isAM = timeLower.includes('am');
+
+    // Remove AM/PM and extract numbers
+    const timeOnly = timeLower.replace(/[ap]m/g, '').trim();
+    const parts = timeOnly.split(':');
+
+    if (parts.length >= 1) {
+      hours = parseInt(parts[0], 10);
+      if (parts.length >= 2) {
+        minutes = parseInt(parts[1], 10);
+      }
+    }
+
+    // Convert 12-hour to 24-hour format
+    if (isPM && hours !== 12) {
+      hours += 12;
+    } else if (isAM && hours === 12) {
+      hours = 0;
+    }
+
+    // Set the time on the date
+    date.setHours(hours, minutes, 0, 0);
 
     return date;
   }

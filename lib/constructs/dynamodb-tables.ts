@@ -42,6 +42,13 @@ export class DynamoDBTablesConstruct extends Construct {
     this.removalPolicy = removalPolicy;
 
     // Session ID table
+    // Stores Aula session tokens with tracking:
+    // - sessionId: Current session token
+    // - created: When this specific sessionId was first created
+    // - lastUpdated: Last modification time
+    // - lastUsedSuccessfully: Last successful Aula API call
+    // - lastUsedFailure: First failure timestamp (captures when session first failed)
+    // - ttl: Expiration timestamp
     this.aulaSessionIdTable = this.createTable(
       'AulaSessionIdTable',
       'Id',
