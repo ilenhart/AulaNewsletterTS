@@ -220,6 +220,63 @@ export class DynamoDBSessionProvider implements ISessionIdProvider {
   }
 
   /**
+   * Retrieves the full session record from DynamoDB
+   * Returns null if no session exists
+   */
+  async getSessionRecord(): Promise<AulaSession | null> {
+    try {
+      logInfo('Retrieving session record from DynamoDB', { table: this.tableName });
+
+      const result = await this.docClient.send(
+        new GetCommand({
+          TableName: this.tableName,
+          Key: { Id: DynamoDBSessionProvider.SESSION_RECORD_ID },
+        })
+      );
+
+      if (!result.Item) {
+        logInfo('No session record found');
+        return null;
+      }
+
+      return result.Item as AulaSession;
+    } catch (error) {
+      logError('Error retrieving session record', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Checks if the session is in a failed state
+   * Returns true if session has lastUsedFailure set (indicating it's failed)
+   * Also returns true if no session exists (can't proceed without a session)
+   */
+  async isSessionFailed(): Promise<boolean> {
+    const session = await this.getSessionRecord();
+
+    if (!session) {
+      logWarn('No session found - treating as failed');
+      return true; // No session = can't proceed
+    }
+
+    if (session.lastUsedFailure) {
+      const failedAgo = Date.now() - new Date(session.lastUsedFailure).getTime();
+      const failedHoursAgo = Math.floor(failedAgo / (1000 * 60 * 60));
+
+      logWarn('Session is in failed state', {
+        lastUsedFailure: session.lastUsedFailure,
+        failedHoursAgo,
+      });
+      return true;
+    }
+
+    logInfo('Session is not in failed state');
+    return false;
+  }
+
+  /**
    * Updates session after failed Aula API call
    * - Sets lastUsedFailure to current timestamp ONLY if currently null/undefined
    * - This captures the FIRST failure time, not subsequent failures

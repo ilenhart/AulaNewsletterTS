@@ -5,7 +5,8 @@
 
 import { DynamoDBDataReader } from '../../../common/dynamodb/data-access';
 import { ParsedDataAccess } from '../../../common/dynamodb/parsed-data-access';
-import { AulaThread, AulaMessage, AttachmentGroup } from '../../../common/types';
+import { NewsletterSnapshotAccess } from '../../../common/dynamodb/snapshot-access';
+import { AulaThread, AulaMessage, AttachmentGroup, NewsletterSnapshot } from '../../../common/types';
 import { getDateRange, logInfo } from '../../../common/utils';
 
 export interface ThreadsWithAttachments {
@@ -26,7 +27,8 @@ export interface PostsWithAttachments {
 export class NewsletterDataService {
   constructor(
     private readonly dataReader: DynamoDBDataReader,
-    private readonly parsedDataAccess?: ParsedDataAccess
+    private readonly parsedDataAccess?: ParsedDataAccess,
+    private readonly snapshotAccess?: NewsletterSnapshotAccess
   ) {}
 
   /**
@@ -197,5 +199,48 @@ export class NewsletterDataService {
 
     logInfo(`Retrieved ${overviews.length} daily overviews`);
     return overviews;
+  }
+
+  /**
+   * Gets the most recent newsletter snapshot
+   * Tries to find yesterday's snapshot, then scans back up to 7 days
+   * @returns Most recent newsletter snapshot or null if none found
+   */
+  async getMostRecentSnapshot(): Promise<NewsletterSnapshot | null> {
+    if (!this.snapshotAccess) {
+      logInfo('Snapshot access not configured - returning null');
+      return null;
+    }
+
+    logInfo('Searching for most recent newsletter snapshot');
+
+    // Try yesterday first (most likely case)
+    const yesterdaySnapshot = await this.snapshotAccess.getYesterdaySnapshot();
+    if (yesterdaySnapshot) {
+      logInfo('Found yesterday\'s snapshot', {
+        snapshotDate: yesterdaySnapshot.SnapshotDate,
+        generatedAt: yesterdaySnapshot.GeneratedAt,
+      });
+      return yesterdaySnapshot;
+    }
+
+    // Scan back up to 7 days to find most recent snapshot
+    for (let daysBack = 2; daysBack <= 7; daysBack++) {
+      const date = new Date();
+      date.setDate(date.getDate() - daysBack);
+      const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      const snapshot = await this.snapshotAccess.getSnapshot(dateStr);
+      if (snapshot) {
+        logInfo(`Found snapshot from ${daysBack} days ago`, {
+          snapshotDate: snapshot.SnapshotDate,
+          generatedAt: snapshot.GeneratedAt,
+        });
+        return snapshot;
+      }
+    }
+
+    logInfo('No recent snapshot found (searched back 7 days)');
+    return null;
   }
 }

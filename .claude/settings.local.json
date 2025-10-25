@@ -27,7 +27,8 @@
       "Bash(python:*)",
       "Bash(npm test:*)",
       "Bash(aws dynamodb scan:*)",
-      "Bash(aws dynamodb get-item --table-name AulaSessionIdTable --region eu-west-1 --key '{\"\"Id\"\":{\"\"N\"\":\"\"1\"\"}}')"
+      "Bash(aws dynamodb get-item --table-name AulaSessionIdTable --region eu-west-1 --key '{\"\"Id\"\":{\"\"N\"\":\"\"1\"\"}}')",
+      "Bash(KEEP_SESSION_ALIVE_HIGH_FREQ_SCHEDULE=\"0/15 23,0 * * ? *\" npx cdk synth:*)"
     ],
     "deny": [],
     "ask": []

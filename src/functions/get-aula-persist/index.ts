@@ -12,7 +12,7 @@ import { AulaAPIClient, AulaClientConfig, AulaInvalidSessionError } from 'aula-a
 import * as dotenv from 'dotenv';
 
 import { getConfig } from './config';
-import { DynamoDBSessionProvider } from './session-provider';
+import { DynamoDBSessionProvider } from '../../common/dynamodb/session-provider';
 import { AulaDataService } from './aula-data-service';
 import { AttachmentDownloadService } from './attachment-download-service';
 import { DynamoDBManager } from './dynamodb-manager';
@@ -24,6 +24,7 @@ import {
   getErrorMessage,
   ExecutionStats,
   formatExecutionStats,
+  calculateDataStartDate,
 } from './utils';
 
 // Load environment variables from .env file (for local development)
@@ -73,6 +74,30 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
       docClient,
       config.dynamodb.sessionIdTable
     );
+
+    // Check if session is in failed state - exit early if so
+    logInfo('Checking session state');
+    const sessionFailed = await sessionProvider.isSessionFailed();
+
+    if (sessionFailed) {
+      logInfo('Session is in failed state - skipping data fetch', {
+        message: 'Will retry on next scheduled run after session is updated',
+      });
+
+      return {
+        statusCode: 200, // Success status (not an error - just skipping)
+        body: JSON.stringify({
+          message: 'Skipped: Session in failed state',
+          timestamp: new Date().toISOString(),
+          action: 'Update session ID via ManageSessionId API to resume operations',
+        }),
+      };
+    }
+
+    logInfo('Session is valid - proceeding with data fetch');
+
+    // Get session record for intelligent date range calculation
+    const session = await sessionProvider.getSessionRecord();
 
     // Initialize Aula API client
     logInfo('Initializing Aula API client');
@@ -128,9 +153,42 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
       throw error;
     }
 
+    // Calculate intelligent date ranges based on session history
+    logInfo('Calculating intelligent date ranges for data retrieval');
+
+    // For threads and posts: use smart date calculation
+    const threadStartDate = calculateDataStartDate(session, config.dataRetrieval.threadMessagesDays);
+    const postStartDate = calculateDataStartDate(session, config.dataRetrieval.postsDays);
+
+    // Calculate days from start date to now
+    const threadDays = Math.ceil((Date.now() - threadStartDate.getTime()) / (1000 * 60 * 60 * 24));
+    const postDays = Math.ceil((Date.now() - postStartDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    // For calendar and gallery: use configured values (they have different semantics - past/future ranges)
+    const intelligentConfig = {
+      threadMessagesDays: threadDays,
+      postsDays: postDays,
+      calendarEventsPast: config.dataRetrieval.calendarEventsPast,
+      calendarEventsFuture: config.dataRetrieval.calendarEventsFuture,
+      galleryDays: config.dataRetrieval.galleryDays,
+    };
+
+    logInfo('Using intelligent date ranges', {
+      threads: {
+        startDate: threadStartDate.toISOString(),
+        days: threadDays,
+        configDefault: config.dataRetrieval.threadMessagesDays,
+      },
+      posts: {
+        startDate: postStartDate.toISOString(),
+        days: postDays,
+        configDefault: config.dataRetrieval.postsDays,
+      },
+    });
+
     // Retrieve data from Aula
     logInfo('Retrieving data from Aula API');
-    const data = await aulaDataService.retrieveCurrentInformation(config.dataRetrieval);
+    const data = await aulaDataService.retrieveCurrentInformation(intelligentConfig);
     logInfo('Successfully retrieved all data from Aula API');
 
     // Save data to DynamoDB (all in parallel)

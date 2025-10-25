@@ -11,6 +11,7 @@ export interface ScheduleConfiguration {
   getAulaSchedule: string;
   generateNewsletterSchedule: string;
   keepSessionAliveSchedule: string;
+  keepSessionAliveHighFrequencySchedule?: string;  // Optional: High-frequency schedule for specific time windows
 }
 
 /**
@@ -65,6 +66,9 @@ export interface LambdaConfiguration {
 
   // Newsletter generation behavior
   generateNewsletterIfNothingNew: boolean;
+
+  // Session keep-alive behavior
+  sessionAliveSendEmailOnSuccess: boolean;
 }
 
 /**
@@ -160,11 +164,17 @@ export function loadConfiguration(): StackConfiguration {
   const getAulaSchedule = getEnv('GET_AULA_SCHEDULE', '0 9,17 * * ? *');
   const generateNewsletterSchedule = getEnv('GENERATE_NEWSLETTER_SCHEDULE', '0 18 * * ? *');
   const keepSessionAliveSchedule = getEnv('KEEP_SESSION_ALIVE_SCHEDULE', '0 0/4 * * ? *');
+  const keepSessionAliveHighFrequencySchedule = process.env.KEEP_SESSION_ALIVE_HIGH_FREQ_SCHEDULE || undefined;
 
   // Validate cron expressions
   validateCronExpression(getAulaSchedule, 'GET_AULA_SCHEDULE');
   validateCronExpression(generateNewsletterSchedule, 'GENERATE_NEWSLETTER_SCHEDULE');
   validateCronExpression(keepSessionAliveSchedule, 'KEEP_SESSION_ALIVE_SCHEDULE');
+
+  // Validate optional high-frequency schedule if provided
+  if (keepSessionAliveHighFrequencySchedule) {
+    validateCronExpression(keepSessionAliveHighFrequencySchedule, 'KEEP_SESSION_ALIVE_HIGH_FREQ_SCHEDULE');
+  }
 
   return {
     environment,
@@ -172,6 +182,7 @@ export function loadConfiguration(): StackConfiguration {
       getAulaSchedule,
       generateNewsletterSchedule,
       keepSessionAliveSchedule,
+      keepSessionAliveHighFrequencySchedule,
     },
     lambdaConfig: {
       // Required fields with validation
@@ -210,6 +221,9 @@ export function loadConfiguration(): StackConfiguration {
 
       // Newsletter generation behavior
       generateNewsletterIfNothingNew: getEnv('GENERATE_NEWSLETTER_IF_NOTHING_NEW', 'false').toLowerCase() === 'true',
+
+      // Session keep-alive behavior
+      sessionAliveSendEmailOnSuccess: getEnv('SESSION_ALIVE_SEND_EMAIL_ON_SUCCESS', 'false').toLowerCase() === 'true',
     },
     stackProps: {
       environment,

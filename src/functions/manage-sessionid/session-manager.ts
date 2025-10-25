@@ -78,6 +78,9 @@ export class SessionManager {
         ttl,
         lastUpdated: now,
         created,
+        // Clear failure state when posting new session (assume it's valid)
+        lastUsedSuccessfully: undefined,
+        lastUsedFailure: undefined,
       };
 
       await this.docClient.send(

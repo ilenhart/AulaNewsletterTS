@@ -47,12 +47,14 @@ get-aula-persist/
 ├── index.ts                    # Handler orchestration (~210 lines)
 ├── config.ts                   # Environment variable management
 ├── types.ts                    # TypeScript interfaces
-├── utils.ts                    # Logging, error handling
-├── session-provider.ts         # DynamoDB-backed session management
+├── utils.ts                    # Logging, error handling, date calculations
 ├── aula-data-service.ts        # Aula API integration
 ├── data-transformers.ts        # Data transformation utilities
-└── dynamodb-manager.ts         # DynamoDB batch operations
+├── dynamodb-manager.ts         # DynamoDB batch operations
+└── attachment-download-service.ts # S3 attachment downloads
 ```
+
+**Note:** Session management uses shared `DynamoDBSessionProvider` from `src/common/dynamodb/session-provider.ts`
 
 **Performance Features:**
 - Batch write operations (faster than individual saves)
@@ -108,7 +110,9 @@ generate-newsletter/
 
 #### 3. AulaKeepSessionAlive Lambda
 **Location:** `src/functions/aula-keep-session-alive/`
-**Schedule:** Every 4 hours (default: `0 0/4 * * ? *`) - **Configurable via `KEEP_SESSION_ALIVE_SCHEDULE`**
+**Schedule:**
+- Normal: Every 3 hours (default: `0 0/3 * * ? *`) - **Configurable via `KEEP_SESSION_ALIVE_SCHEDULE`**
+- High-Frequency (optional): `KEEP_SESSION_ALIVE_HIGH_FREQ_SCHEDULE` - Runs more frequently during specific time windows (e.g., around midnight)
 **Handler:** `index.handler`
 
 **Purpose:**
@@ -127,13 +131,23 @@ aula-keep-session-alive/
 └── email-alert-service.ts  # Email notifications (~160 lines)
 ```
 
-**Session Expiration Alert:**
+**Email Alerts:**
+
+*Failure Alert (always sent):*
 When the session expires or Aula ping fails, an email is automatically sent with:
 - Error details and failure timestamp
 - Session age (created timestamp)
 - Last successful ping time
 - TTL expiration status
 - Action steps to resolve (manual login, extract new session, update via API)
+
+*Success Alert (optional):*
+When `SESSION_ALIVE_SEND_EMAIL_ON_SUCCESS=true` is set, an email is sent on successful pings with:
+- Success timestamp
+- Session age (created timestamp)
+- Last successful ping time
+- TTL expiration status
+- Session validity duration (if failure history exists)
 
 **Critical Bug Fixes:**
 - ✅ Session ID key changed from `Id: 'current-session'` (string) to `Id: 1` (number)
@@ -401,7 +415,11 @@ KEEP_SESSION_ALIVE_TIMEOUT=60            # KeepSessionAlive timeout (1 min)
 # EventBridge Cron Schedules (Optional - defaults shown)
 GET_AULA_SCHEDULE=0 9,17 * * ? *         # GetAulaAndPersist: 9am & 5pm UTC
 GENERATE_NEWSLETTER_SCHEDULE=0 18 * * ? * # GenerateNewsletter: 6pm UTC
-KEEP_SESSION_ALIVE_SCHEDULE=0 0/4 * * ? * # KeepSessionAlive: Every 4 hours
+KEEP_SESSION_ALIVE_SCHEDULE=0 0/3 * * ? * # KeepSessionAlive: Every 3 hours (normal schedule)
+KEEP_SESSION_ALIVE_HIGH_FREQ_SCHEDULE=0/15 23,0 * * ? * # KeepSessionAlive: Every 15 min during 23:00-00:59 UTC (optional)
+
+# Session Keep-Alive Behavior
+SESSION_ALIVE_SEND_EMAIL_ON_SUCCESS=false # Send email on successful session ping (default: false)
 
 # Cost Allocation (Optional)
 STACK_OWNER=Team                         # Owner tag for resources
@@ -453,6 +471,60 @@ npx cdk deploy
 - Must have exactly 6 fields
 - Either day-of-month or day-of-week must be `?` (not both)
 - Clear error messages for invalid expressions
+
+### Dual-Schedule Support for Keep-Session-Alive
+
+The Keep-Session-Alive Lambda supports **two independent schedules** running simultaneously:
+
+**1. Normal Schedule** (`KEEP_SESSION_ALIVE_SCHEDULE`):
+- Default: `0 0/3 * * ? *` (every 3 hours)
+- Runs 24/7 at regular intervals
+- Maintains baseline session health
+
+**2. High-Frequency Schedule** (`KEEP_SESSION_ALIVE_HIGH_FREQ_SCHEDULE`):
+- Optional: Not enabled by default
+- Purpose: Run more frequently during specific time windows
+- Example: `0/15 23,0 * * ? *` (every 15 minutes during 23:00-00:59 UTC)
+
+**Use Case - Higher Frequency Around Midnight:**
+```bash
+# Normal schedule: Every 3 hours (runs all day)
+KEEP_SESSION_ALIVE_SCHEDULE=0 0/3 * * ? *
+
+# High-frequency schedule: Every 15 minutes between 11pm-1am UTC
+KEEP_SESSION_ALIVE_HIGH_FREQ_SCHEDULE=0/15 23,0,1 * * ? *
+```
+
+This configuration will:
+- Run every 3 hours during normal times: 00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00
+- **Additionally** run every 15 minutes during 23:00-01:59 UTC
+
+**How It Works:**
+- Creates **two separate EventBridge rules** targeting the same Lambda function
+- Both schedules run independently and can overlap (safe - Lambda is idempotent)
+- High-frequency schedule is optional - omit the variable to use only the normal schedule
+- Both schedules are validated at deploy time
+
+**Overlap Handling:**
+- If both schedules trigger at the same time (e.g., midnight), Lambda may run twice
+- This is **safe and intentional** - the session ping operation is idempotent
+- DynamoDB updates handle concurrent writes correctly
+- No duplicate emails (success emails are optional, failure emails only on actual failures)
+
+**Common High-Frequency Patterns:**
+```bash
+# Every 15 minutes during 23:00-00:59 (2 hours)
+KEEP_SESSION_ALIVE_HIGH_FREQ_SCHEDULE=0/15 23,0 * * ? *
+
+# Every 15 minutes during 23:00-01:59 (3 hours)
+KEEP_SESSION_ALIVE_HIGH_FREQ_SCHEDULE=0/15 23,0,1 * * ? *
+
+# Every 10 minutes during 22:00-02:59 (5 hours)
+KEEP_SESSION_ALIVE_HIGH_FREQ_SCHEDULE=0/10 22,23,0,1,2 * * ? *
+
+# Every 5 minutes during midnight hour only (00:00-00:59)
+KEEP_SESSION_ALIVE_HIGH_FREQ_SCHEDULE=0/5 0 * * ? *
+```
 
 ### Environment-Specific Behavior
 
@@ -538,9 +610,50 @@ To test lambda logic locally:
 
 Session IDs are persisted in `AulaSessionIdTable` to reduce unnecessary Aula API login calls:
 - **Session Record ID:** Always `1` (number, not string)
-- **TTL:** 1 hour (updated by KeepSessionAlive lambda)
-- **Implementation:** `DynamoDBSessionProvider` class implements `ISessionIdProvider` interface
-- **Reused by:** Both GetAulaAndPersist and KeepSessionAlive lambdas
+- **TTL:** 1 year (extended by KeepSessionAlive lambda)
+- **Implementation:** Shared `DynamoDBSessionProvider` class in `src/common/dynamodb/session-provider.ts`
+- **Implements:** `ISessionIdProvider` interface from aula-apiclient-ts
+- **Used by:** All four lambdas (GetAulaAndPersist, GenerateNewsletter, KeepSessionAlive, ManageSessionId)
+- **Key Methods:**
+  - `getKnownAulaSessionId()` - Retrieves current session ID
+  - `setKnownAulaSessionId()` - Stores new session ID
+  - `getSessionRecord()` - Retrieves full session object with metadata
+  - `isSessionFailed()` - Checks if session is in failed state
+  - `updateSessionSuccess()` - Marks session as working (clears failure flag)
+  - `updateSessionFailure()` - Marks session as failed (first failure only)
+  - `updateSessionTimestamp()` - Extends TTL to 1 year
+
+**Session State Tracking:**
+- `created` - When this unique sessionId was first created
+- `lastUpdated` - Last time session record was modified
+- `lastUsedSuccessfully` - Last successful Aula API call
+- `lastUsedFailure` - First failure timestamp (captures first failure only)
+- `ttl` - Unix timestamp for DynamoDB auto-expiration (1 year)
+
+**Session State Awareness:**
+- GetAulaAndPersist and GenerateNewsletter check session state before processing
+- If `lastUsedFailure` is set, lambdas exit early with skip message (HTTP 200)
+- Prevents wasted processing when session is known to be invalid
+- ManageSessionId clears failure state when new session is posted
+
+### Intelligent Date Ranges
+
+**GetAulaAndPersist Smart Data Retrieval:**
+- Uses session history to determine optimal start date for data fetching
+- Priority order:
+  1. `lastUsedSuccessfully` - Most recent successful fetch (most efficient)
+  2. `created` - Session creation date (fallback)
+  3. Configured days in past - Default config values (last resort)
+- Calculates days from start date to now and passes to AulaDataService
+- Logged for transparency and debugging
+
+**GenerateNewsletter Incremental Mode:**
+- Searches for most recent newsletter snapshot (up to 7 days back)
+- If found: Uses `GeneratedAt` timestamp for incremental data fetching
+  - `getThreadsWithMessagesSince(timestamp)` - Only new messages
+  - `getPostsWithAttachmentsSince(timestamp)` - Only new posts
+- If not found: Falls back to full mode (configured days in past)
+- More robust than just checking yesterday's snapshot
 
 ### Batch Write Operations
 
@@ -911,6 +1024,23 @@ GET_AULA_TIMEOUT=1200  # Increase to 20 minutes
 ---
 
 ## Project History
+
+**October 25, 2025 - Session State Awareness & Intelligent Date Ranges:**
+- ✅ Implemented comprehensive session state awareness across all lambdas
+- ✅ Added `isSessionFailed()` and `getSessionRecord()` to shared DynamoDBSessionProvider
+- ✅ GetAulaAndPersist and GenerateNewsletter now exit early if session is failed
+- ✅ ManageSessionId clears failure state when posting new session
+- ✅ Added intelligent date range calculation for GetAulaAndPersist
+  - Priority: lastUsedSuccessfully → created → config defaults
+  - Reduces redundant data fetching
+- ✅ Enhanced GenerateNewsletter to search for most recent snapshot (up to 7 days back)
+  - More robust incremental mode
+  - Uses `getMostRecentSnapshot()` instead of `getYesterdaySnapshot()`
+- ✅ Consolidated session providers - removed duplicate local version
+  - All lambdas now use shared `src/common/dynamodb/session-provider.ts`
+  - Deleted orphaned `src/functions/get-aula-persist/session-provider.ts`
+- ✅ Updated documentation with session state tracking details
+- ✅ Build verification successful - no TypeScript errors
 
 **October 17, 2025 - Session Expiration Email Alerts:**
 - ✅ Added email notification system to KeepSessionAlive Lambda

@@ -11,6 +11,7 @@ import { DynamoDBDataReader } from '../../common/dynamodb/data-access';
 import { ParsedDataAccess } from '../../common/dynamodb/parsed-data-access';
 import { DerivedEventsAccess } from '../../common/dynamodb/derived-events-access';
 import { NewsletterSnapshotAccess } from '../../common/dynamodb/snapshot-access';
+import { DynamoDBSessionProvider } from '../../common/dynamodb/session-provider';
 import { BedrockService } from './services/bedrock-service';
 import { EmailService } from './services/email-service';
 import { NewsletterDataService } from './services/newsletter-data-service';
@@ -54,6 +55,33 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
     // Initialize AWS clients
     logInfo('Initializing AWS clients');
     const docClient = createDynamoDBDocClient();
+
+    // Check session state early - exit if failed
+    logInfo('Checking session state');
+    const sessionProvider = new DynamoDBSessionProvider(
+      docClient,
+      config.dynamodb.sessionIdTable
+    );
+
+    const sessionFailed = await sessionProvider.isSessionFailed();
+
+    if (sessionFailed) {
+      logInfo('Session is in failed state - skipping newsletter generation', {
+        message: 'Will retry on next scheduled run after session is updated',
+      });
+
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          message: 'Skipped: Session in failed state',
+          timestamp: new Date().toISOString(),
+          action: 'Update session ID via ManageSessionId API to resume operations',
+        }),
+      };
+    }
+
+    logInfo('Session is valid - proceeding with newsletter generation');
+
     const bedrockClient = createBedrockClient();
     const sesClient = createSESClient();
 
@@ -68,8 +96,6 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
       config.dynamodb.parsedThreadsTable
     );
 
-    const newsletterDataService = new NewsletterDataService(dataReader, parsedDataAccess);
-
     const derivedEventsAccess = new DerivedEventsAccess(
       docClient,
       config.dynamodb.derivedEventsFromPostsTable!,
@@ -80,6 +106,8 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
       docClient,
       config.dynamodb.newsletterSnapshotsTable!
     );
+
+    const newsletterDataService = new NewsletterDataService(dataReader, parsedDataAccess, snapshotAccess);
 
     // Initialize Bedrock service
     const bedrockService = new BedrockService(bedrockClient, config.bedrock.modelId, {
@@ -141,12 +169,13 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
     const today = new Date();
     const todayDateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
 
-    // NEW: Load yesterday's snapshot for incremental generation
-    logInfo('Loading previous newsletter snapshot');
-    const previousSnapshot = await snapshotAccess.getYesterdaySnapshot();
+    // NEW: Load most recent snapshot for incremental generation
+    logInfo('Loading most recent newsletter snapshot');
+    const previousSnapshot = await newsletterDataService.getMostRecentSnapshot();
     if (previousSnapshot) {
       logInfo('Previous snapshot loaded successfully', {
         snapshotDate: previousSnapshot.SnapshotDate,
+        generatedAt: previousSnapshot.GeneratedAt,
         eventsCount: previousSnapshot.NewsletterJson.upcomingEvents.length,
       });
     } else {

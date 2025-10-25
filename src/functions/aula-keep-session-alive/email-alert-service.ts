@@ -65,6 +65,167 @@ export class EmailAlertService {
   }
 
   /**
+   * Sends session success alert email with detailed context
+   */
+  async sendSessionSuccessAlert(session: AulaSession | null): Promise<void> {
+    try {
+      const subject = '✅ Aula Session Keep-Alive Success';
+      const htmlContent = this.buildSessionSuccessEmail(session);
+
+      logInfo('Sending session success alert via SES', {
+        from: this.fromAddress,
+        to: this.toAddresses,
+        subject,
+      });
+
+      const command = new SendEmailCommand({
+        Destination: {
+          ToAddresses: this.toAddresses,
+        },
+        Message: {
+          Body: {
+            Html: {
+              Charset: 'UTF-8',
+              Data: htmlContent,
+            },
+          },
+          Subject: {
+            Charset: 'UTF-8',
+            Data: subject,
+          },
+        },
+        Source: this.fromAddress,
+      });
+
+      await this.client.send(command);
+      logInfo('Session success alert sent successfully');
+    } catch (emailError) {
+      logError('Error sending session success alert', {
+        error: emailError instanceof Error ? emailError.message : String(emailError),
+      });
+      throw new EmailError('Failed to send session success alert', { originalError: emailError });
+    }
+  }
+
+  /**
+   * Builds HTML email content for session success notification
+   */
+  private buildSessionSuccessEmail(session: AulaSession | null): string {
+    const now = new Date().toISOString();
+
+    let html = '<!DOCTYPE html><html><body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">';
+    html += '<h2 style="color: #2e7d32;">✅ Aula Session Ping Successful</h2>';
+    html += '<p>The <strong>Aula-keep-session-alive</strong> Lambda successfully pinged Aula and kept the session alive.</p>';
+
+    html += '<h3>Success Details:</h3>';
+    html += '<ul style="background-color: #e8f5e9; padding: 15px; border-left: 4px solid #4caf50;">';
+    html += `<li><strong>Success Time:</strong> ${now}</li>`;
+    html += '<li><strong>Status:</strong> Session is active and valid</li>';
+    html += '</ul>';
+
+    // Total Session Validity (prominent display for success case)
+    if (session && session.created) {
+      const createdDate = new Date(session.created);
+      const validityMs = Date.now() - createdDate.getTime();
+      const validityFormatted = this.formatDurationHoursMinutes(validityMs);
+
+      html += '<div style="background-color: #e8f5e9; padding: 20px; margin: 20px 0; border-left: 4px solid #4caf50; border-radius: 4px;">';
+      html += '<h3 style="margin-top: 0; color: #2e7d32;">⏱️ Total Session Validity</h3>';
+      html += `<p style="font-size: 1.2em; margin: 10px 0; color: #1b5e20;"><strong>${validityFormatted}</strong></p>`;
+      html += '<p style="margin-bottom: 0; color: #666; font-size: 0.95em;">Session has been working continuously since creation</p>';
+      html += '</div>';
+    }
+
+    if (session) {
+      html += '<h3>Session Information:</h3>';
+      html += '<ul style="background-color: #e3f2fd; padding: 15px; border-left: 4px solid #2196f3;">';
+
+      // Session ID (partially masked for security)
+      const maskedSessionId = session.sessionId.length > 16
+        ? `${session.sessionId.substring(0, 10)}...${session.sessionId.substring(session.sessionId.length - 6)}`
+        : session.sessionId;
+      html += `<li><strong>Session ID:</strong> <code>${maskedSessionId}</code></li>`;
+
+      // Session age (if created timestamp exists)
+      if (session.created) {
+        const createdDate = new Date(session.created);
+        const ageMs = Date.now() - createdDate.getTime();
+        const ageHours = Math.floor(ageMs / (1000 * 60 * 60));
+        const ageDays = Math.floor(ageHours / 24);
+        const remainingHours = ageHours % 24;
+
+        html += `<li><strong>Session Created:</strong> ${session.created}`;
+        html += ` <em>(${ageDays} days, ${remainingHours} hours ago)</em></li>`;
+      } else {
+        html += '<li><strong>Session Created:</strong> <em>Unknown (field not set)</em></li>';
+      }
+
+      // Time since last successful ping
+      if (session.lastUpdated) {
+        const lastPingDate = new Date(session.lastUpdated);
+        const timeSincePingMs = Date.now() - lastPingDate.getTime();
+        const hoursSincePing = Math.floor(timeSincePingMs / (1000 * 60 * 60));
+        const minutesSincePing = Math.floor((timeSincePingMs % (1000 * 60 * 60)) / (1000 * 60));
+
+        html += `<li><strong>Last Successful Ping:</strong> ${session.lastUpdated}`;
+        html += ` <em>(${hoursSincePing} hours, ${minutesSincePing} minutes ago)</em></li>`;
+      } else {
+        html += '<li><strong>Last Successful Ping:</strong> <em>Unknown</em></li>';
+      }
+
+      // TTL expiration
+      if (session.ttl) {
+        const ttlDate = new Date(session.ttl * 1000);
+        const isExpired = Date.now() > session.ttl * 1000;
+        html += `<li><strong>TTL Expiration:</strong> ${ttlDate.toISOString()}`;
+        html += isExpired ? ' <span style="color: #d32f2f;">(EXPIRED)</span>' : ' <span style="color: #4caf50;">(Valid)</span>';
+        html += '</li>';
+      }
+
+      // Session validity duration (if we have the data)
+      const validityInfo = this.calculateSessionValidityDuration(session);
+      if (validityInfo) {
+        html += '</ul>';
+        html += '<div style="background-color: #e8f5e9; padding: 15px; margin: 15px 0; border-left: 4px solid #4caf50;">';
+        html += '<p style="margin-top: 0;"><strong>⏱️ Session Validity Duration:</strong></p>';
+        html += '<ul style="margin: 10px 0;">';
+
+        const baselineLabel = validityInfo.baselineType === 'lastUsedSuccessfully'
+          ? 'Last used successfully'
+          : 'Last updated';
+
+        html += `<li><strong>${baselineLabel}:</strong> ${validityInfo.baselineTimestamp}</li>`;
+        html += `<li><strong>First failed:</strong> ${validityInfo.failureTimestamp}</li>`;
+        html += `<li><strong>Maximum validity time:</strong> <span style="font-size: 1.1em; color: #2e7d32;">${this.formatDurationHoursMinutes(validityInfo.durationMs)}</span></li>`;
+        html += '</ul>';
+
+        if (validityInfo.baselineType === 'lastUpdated') {
+          html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 0;"><em>Note: Using "lastUpdated" as baseline since "lastUsedSuccessfully" was not recorded.</em></p>';
+        }
+
+        html += '</div>';
+        html += '<ul style="background-color: #e3f2fd; padding: 15px; border-left: 4px solid #2196f3;">';
+      }
+
+      html += '</ul>';
+    } else {
+      html += '<p style="background-color: #fff3e0; padding: 15px; border-left: 4px solid #ff9800;">';
+      html += '<strong>⚠️ No session record found in DynamoDB.</strong> This is unexpected for a successful ping.';
+      html += '</p>';
+    }
+
+    html += '<hr style="margin-top: 30px; border: none; border-top: 1px solid #ccc;" />';
+    html += '<p style="color: #666; font-size: 12px; text-align: center;">';
+    html += 'This is an automated success notification from the Aula Newsletter system.<br/>';
+    html += 'Lambda Function: <strong>AulaKeepSessionAlive</strong><br/>';
+    html += 'To disable these success notifications, set <code>SESSION_ALIVE_SEND_EMAIL_ON_SUCCESS=false</code>';
+    html += '</p>';
+
+    html += '</body></html>';
+    return html;
+  }
+
+  /**
    * Builds HTML email content for session expiration notification
    */
   private buildSessionExpiredEmail(
@@ -88,6 +249,44 @@ export class EmailAlertService {
     html += `<li><strong>Failure Reason:</strong> ${failureReason || 'UNKNOWN'}</li>`;
     html += '</ul>';
 
+    // Total Session Validity (prominent display for error case)
+    if (session && session.created) {
+      let validityMs: number;
+      let baselineTimestamp: string;
+      let baselineLabel: string;
+
+      // Prefer lastUsedSuccessfully, fallback to lastUpdated
+      if (session.lastUsedSuccessfully) {
+        const lastSuccessDate = new Date(session.lastUsedSuccessfully);
+        const createdDate = new Date(session.created);
+        validityMs = lastSuccessDate.getTime() - createdDate.getTime();
+        baselineTimestamp = session.lastUsedSuccessfully;
+        baselineLabel = 'lastUsedSuccessfully';
+      } else if (session.lastUpdated) {
+        const lastUpdatedDate = new Date(session.lastUpdated);
+        const createdDate = new Date(session.created);
+        validityMs = lastUpdatedDate.getTime() - createdDate.getTime();
+        baselineTimestamp = session.lastUpdated;
+        baselineLabel = 'lastUpdated';
+      } else {
+        // If neither timestamp exists, we can't calculate validity
+        validityMs = 0;
+        baselineTimestamp = '';
+        baselineLabel = '';
+      }
+
+      if (validityMs > 0 && baselineTimestamp) {
+        const validityFormatted = this.formatDurationHoursMinutes(validityMs);
+
+        html += '<div style="background-color: #fff8e1; padding: 20px; margin: 20px 0; border-left: 4px solid #ffa726; border-radius: 4px;">';
+        html += '<h3 style="margin-top: 0; color: #e65100;">⏱️ Total Session Validity</h3>';
+        html += `<p style="font-size: 1.2em; margin: 10px 0; color: #e65100;"><strong>${validityFormatted}</strong></p>`;
+        html += '<p style="margin: 5px 0; color: #666; font-size: 0.95em;">Session worked from creation until first failure</p>';
+        html += `<p style="margin-bottom: 0; color: #666; font-size: 0.85em;"><em>Calculated from: ${baselineLabel} (${baselineTimestamp})</em></p>`;
+        html += '</div>';
+      }
+    }
+
     if (session) {
       html += '<h3>Session Information:</h3>';
       html += '<ul style="background-color: #e3f2fd; padding: 15px; border-left: 4px solid #2196f3;">';
@@ -107,7 +306,7 @@ export class EmailAlertService {
         const remainingHours = ageHours % 24;
 
         html += `<li><strong>Session Created:</strong> ${session.created}`;
-        html += ` <em>(${ageDays} days, ${remainingHours} hours ago)</em></li>`;
+        html += ` <em>(${ageDays} days, ${remainingHours} hours ago total, including failed time)</em></li>`;
       } else {
         html += '<li><strong>Session Created:</strong> <em>Unknown (field not set)</em></li>';
       }

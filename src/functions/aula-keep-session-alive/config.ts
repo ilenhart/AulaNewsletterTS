@@ -2,13 +2,14 @@
  * Configuration for aula-keep-session-alive Lambda
  */
 
-import { validateRequired, getEnvString } from '../../common/config';
+import { validateRequired, getEnvString, getEnvBool } from '../../common/config';
 
 export interface KeepSessionAliveConfig {
   sessionTableName: string;
   apiUrl: string;
   emailFromAddress: string;
   emailToAddresses: string[];
+  sendEmailOnSuccess: boolean;
 }
 
 /**
@@ -30,5 +31,6 @@ export function getConfig(): KeepSessionAliveConfig {
       .split(',')
       .map(email => email.trim())
       .filter(email => email.length > 0),
+    sendEmailOnSuccess: getEnvBool('SESSION_ALIVE_SEND_EMAIL_ON_SUCCESS', false),
   };
 }

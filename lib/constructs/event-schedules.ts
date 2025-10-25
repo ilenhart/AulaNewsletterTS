@@ -20,6 +20,7 @@ export class EventSchedulesConstruct extends Construct {
   public readonly getAulaAndPersistRule: events.Rule;
   public readonly generateNewsletterRule: events.Rule;
   public readonly aulaKeepSessionAliveRule: events.Rule;
+  public readonly aulaKeepSessionAliveHighFreqRule?: events.Rule;  // Optional high-frequency rule
 
   constructor(scope: Construct, id: string, props: EventSchedulesConstructProps) {
     super(scope, id);
@@ -47,14 +48,27 @@ export class EventSchedulesConstruct extends Construct {
       new targets.LambdaFunction(props.lambdaFunctions.generateNewsletterFunction)
     );
 
-    // Rule to trigger AulaKeepSessionAlive Lambda
+    // Rule to trigger AulaKeepSessionAlive Lambda (normal schedule)
     this.aulaKeepSessionAliveRule = new events.Rule(this, 'AulaKeepSessionAliveRule', {
-      description: `Trigger AulaKeepSessionAlive Lambda (schedule: ${props.scheduleConfig.keepSessionAliveSchedule})`,
+      description: `Trigger AulaKeepSessionAlive Lambda - Normal (schedule: ${props.scheduleConfig.keepSessionAliveSchedule})`,
       schedule: events.Schedule.cron(keepSessionAliveCron),
     });
     this.aulaKeepSessionAliveRule.addTarget(
       new targets.LambdaFunction(props.lambdaFunctions.aulaKeepSessionAliveFunction)
     );
+
+    // Optional high-frequency rule for specific time windows (e.g., around midnight)
+    if (props.scheduleConfig.keepSessionAliveHighFrequencySchedule) {
+      const highFreqCron = this.parseCronExpression(props.scheduleConfig.keepSessionAliveHighFrequencySchedule);
+
+      this.aulaKeepSessionAliveHighFreqRule = new events.Rule(this, 'AulaKeepSessionAliveHighFreqRule', {
+        description: `Trigger AulaKeepSessionAlive Lambda - High Frequency (schedule: ${props.scheduleConfig.keepSessionAliveHighFrequencySchedule})`,
+        schedule: events.Schedule.cron(highFreqCron),
+      });
+      this.aulaKeepSessionAliveHighFreqRule.addTarget(
+        new targets.LambdaFunction(props.lambdaFunctions.aulaKeepSessionAliveFunction)
+      );
+    }
   }
 
   /**

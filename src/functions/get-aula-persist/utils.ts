@@ -179,3 +179,49 @@ export function formatExecutionStats(stats: ExecutionStats): string {
 
   return `Processed ${stats.itemsProcessed} items (${stats.itemsSuccessful} successful, ${stats.itemsFailed} failed) in ${duration}ms`;
 }
+
+/**
+ * Calculates the start date for data retrieval based on session state
+ *
+ * Priority:
+ * 1. lastUsedSuccessfully (most recent known good fetch)
+ * 2. created (session creation date)
+ * 3. Fallback to X days ago (from config)
+ *
+ * @param session - The Aula session record (may be null)
+ * @param defaultDaysInPast - Number of days to go back if no session history available
+ * @returns Date object representing the start date for data retrieval
+ */
+export function calculateDataStartDate(
+  session: { created?: string; lastUsedSuccessfully?: string } | null,
+  defaultDaysInPast: number
+): Date {
+  // Priority 1: Use lastUsedSuccessfully if available
+  if (session?.lastUsedSuccessfully) {
+    const lastSuccessDate = new Date(session.lastUsedSuccessfully);
+    logInfo('Using lastUsedSuccessfully as data start date', {
+      startDate: lastSuccessDate.toISOString(),
+      daysAgo: Math.floor((Date.now() - lastSuccessDate.getTime()) / (1000 * 60 * 60 * 24)),
+    });
+    return lastSuccessDate;
+  }
+
+  // Priority 2: Use created if available
+  if (session?.created) {
+    const createdDate = new Date(session.created);
+    logInfo('Using session created date as data start date', {
+      startDate: createdDate.toISOString(),
+      daysAgo: Math.floor((Date.now() - createdDate.getTime()) / (1000 * 60 * 60 * 24)),
+    });
+    return createdDate;
+  }
+
+  // Priority 3: Fallback to configured days in past
+  const fallbackDate = new Date();
+  fallbackDate.setDate(fallbackDate.getDate() - defaultDaysInPast);
+  logInfo('Using default days-in-past as data start date', {
+    startDate: fallbackDate.toISOString(),
+    daysInPast: defaultDaysInPast,
+  });
+  return fallbackDate;
+}

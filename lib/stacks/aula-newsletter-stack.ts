@@ -132,6 +132,14 @@ export class AulaNewsletterStack extends cdk.Stack {
       value: this.eventSchedules.aulaKeepSessionAliveRule.ruleArn,
     });
 
+    // Optional high-frequency schedule output
+    if (this.eventSchedules.aulaKeepSessionAliveHighFreqRule) {
+      new cdk.CfnOutput(this, 'KeepSessionAliveHighFreqScheduleRuleArn', {
+        description: 'EventBridge rule ARN for KeepSessionAlive high-frequency schedule',
+        value: this.eventSchedules.aulaKeepSessionAliveHighFreqRule.ruleArn,
+      });
+    }
+
     // API Gateway outputs
     new cdk.CfnOutput(this, 'ApiGatewayUrl', {
       description: 'API Gateway endpoint URL',
@@ -180,6 +188,13 @@ export class AulaNewsletterStack extends cdk.Stack {
       description: 'KeepSessionAlive cron schedule',
       value: config.scheduleConfig.keepSessionAliveSchedule,
     });
+
+    if (config.scheduleConfig.keepSessionAliveHighFrequencySchedule) {
+      new cdk.CfnOutput(this, 'KeepSessionAliveHighFreqSchedule', {
+        description: 'KeepSessionAlive high-frequency cron schedule',
+        value: config.scheduleConfig.keepSessionAliveHighFrequencySchedule,
+      });
+    }
 
     // S3 Bucket outputs
     new cdk.CfnOutput(this, 'AttachmentsBucketName', {

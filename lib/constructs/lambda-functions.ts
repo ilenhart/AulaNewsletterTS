@@ -241,6 +241,7 @@ export class LambdaFunctionsConstruct extends Construct {
         API_URL: config.apiUrl,
         EMAIL_FROM_ADDRESS: config.emailFromAddress,
         EMAIL_TO_ADDRESSES: config.emailToAddresses,
+        SESSION_ALIVE_SEND_EMAIL_ON_SUCCESS: config.sessionAliveSendEmailOnSuccess.toString(),
       },
       bundling: commonBundling,
     });

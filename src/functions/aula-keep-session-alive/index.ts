@@ -61,6 +61,34 @@ export const handler = async (
       duration: `${duration}ms`,
     });
 
+    // Send success email if configured
+    if (config.sendEmailOnSuccess) {
+      try {
+        logInfo('Attempting to send session success alert via email');
+
+        // Initialize SES client and email service
+        const sesClient = createSESClient();
+        const emailService = new EmailAlertService(
+          sesClient,
+          config.emailFromAddress,
+          config.emailToAddresses
+        );
+
+        // Get session data from sessionKeeper
+        const session = sessionKeeper.getCurrentSession();
+
+        // Send the success alert email
+        await emailService.sendSessionSuccessAlert(session);
+        logInfo('Session success alert sent successfully');
+      } catch (emailError) {
+        // Don't fail the lambda if email sending fails - just log it
+        logError('Failed to send session success alert email', {
+          error: emailError instanceof Error ? emailError.message : String(emailError),
+        });
+        // Continue to return success, not the email error
+      }
+    }
+
     return {
       statusCode: 200,
       body: JSON.stringify({
