@@ -31,6 +31,8 @@ It's important to know that in order to access Aula, you must have a valid sessi
 
 So, as a first step, it is recommended you use the above browser extension in chrome, log into Aula with your MitID credentials, and then use the extension to persist the session.  This session process is functionally equivalent to keeping your browser open and refreshing it periodically, so there is no circumvention of security happening.  MitID is still **required** as part of this process.
 
+Note that if Aula has planned maintenance or otherwise goes down, the session will no longer be valid. See planned maintenance here: https://aulainfoprod.heyday.dk/driftsstatus , which is typically expected on Saturday nights.
+
 ## Architecture Overview
 
 The application uses a **four-Lambda architecture** with scheduled execution and REST API:
