@@ -9,6 +9,7 @@ import { Construct } from 'constructs';
 
 export interface ApiGatewayConstructProps {
   manageSessionIdFunction: lambda.Function;
+  updateAndGenerateFullProcessFunction: lambda.Function;
 }
 
 /**
@@ -38,7 +39,7 @@ export class ApiGatewayConstruct extends Construct {
       },
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
-        allowMethods: ['GET', 'POST', 'OPTIONS'],
+        allowMethods: ['GET', 'POST', 'PUT', 'OPTIONS'],
         allowHeaders: [
           'Content-Type',
           'X-Amz-Date',
@@ -120,6 +121,87 @@ export class ApiGatewayConstruct extends Construct {
         },
         {
           statusCode: '500',
+          responseModels: {
+            'application/json': apigateway.Model.ERROR_MODEL,
+          },
+        },
+      ],
+    });
+
+    // Create /api/sendNewsletter resource
+    const sendNewsletterResource = apiResource.addResource('sendNewsletter');
+
+    // Create async Lambda integration (Event type - fire and forget)
+    // This allows the API to return 202 Accepted immediately without waiting for lambda completion
+    const asyncLambdaIntegration = new apigateway.LambdaIntegration(
+      props.updateAndGenerateFullProcessFunction,
+      {
+        proxy: false, // Use custom integration for async
+        allowTestInvoke: true,
+        integrationResponses: [
+          {
+            statusCode: '202',
+            responseParameters: {
+              'method.response.header.Access-Control-Allow-Origin': "'*'",
+              'method.response.header.Access-Control-Allow-Headers': "'Content-Type,X-aulasession-authenticate,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+              'method.response.header.Access-Control-Allow-Methods': "'PUT,OPTIONS'",
+            },
+            responseTemplates: {
+              'application/json': JSON.stringify({
+                message: 'Newsletter generation started',
+                status: 'processing',
+              }),
+            },
+          },
+        ],
+        requestTemplates: {
+          'application/json': JSON.stringify({
+            httpMethod: 'PUT',
+            headers: { 'X-aulasession-authenticate': '$input.params(\'X-aulasession-authenticate\')' },
+            queryStringParameters: {
+              lastNumberOfDays: '$input.params(\'lastNumberOfDays\')',
+              futureDays: '$input.params(\'futureDays\')',
+            },
+          }),
+        },
+        passthroughBehavior: apigateway.PassthroughBehavior.WHEN_NO_TEMPLATES,
+      }
+    );
+
+    // Add PUT method with async invocation
+    // Returns 202 Accepted immediately while lambda runs in background
+    sendNewsletterResource.addMethod('PUT', asyncLambdaIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE,
+      methodResponses: [
+        {
+          statusCode: '202',
+          responseParameters: {
+            'method.response.header.Access-Control-Allow-Origin': true,
+            'method.response.header.Access-Control-Allow-Headers': true,
+            'method.response.header.Access-Control-Allow-Methods': true,
+          },
+          responseModels: {
+            'application/json': apigateway.Model.EMPTY_MODEL,
+          },
+        },
+        {
+          statusCode: '401',
+          responseParameters: {
+            'method.response.header.Access-Control-Allow-Origin': true,
+            'method.response.header.Access-Control-Allow-Headers': true,
+            'method.response.header.Access-Control-Allow-Methods': true,
+          },
+          responseModels: {
+            'application/json': apigateway.Model.ERROR_MODEL,
+          },
+        },
+        {
+          statusCode: '500',
+          responseParameters: {
+            'method.response.header.Access-Control-Allow-Origin': true,
+            'method.response.header.Access-Control-Allow-Headers': true,
+            'method.response.header.Access-Control-Allow-Methods': true,
+          },
           responseModels: {
             'application/json': apigateway.Model.ERROR_MODEL,
           },

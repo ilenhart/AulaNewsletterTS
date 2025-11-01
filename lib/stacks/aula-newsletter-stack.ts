@@ -53,6 +53,7 @@ export class AulaNewsletterStack extends cdk.Stack {
     // Create API Gateway
     this.apiGateway = new ApiGatewayConstruct(this, 'ApiGateway', {
       manageSessionIdFunction: this.lambdaFunctions.manageSessionIdFunction,
+      updateAndGenerateFullProcessFunction: this.lambdaFunctions.updateAndGenerateFullProcessFunction,
     });
 
     // Stack Outputs
@@ -74,6 +75,12 @@ export class AulaNewsletterStack extends cdk.Stack {
       exportName: `${id}-AulaKeepSessionAliveFunctionArn`,
     });
 
+    new cdk.CfnOutput(this, 'UpdateAndGenerateFullProcessFunctionArn', {
+      description: 'ARN of the UpdateAndGenerateFullProcess Lambda function',
+      value: this.lambdaFunctions.updateAndGenerateFullProcessFunction.functionArn,
+      exportName: `${id}-UpdateAndGenerateFullProcessFunctionArn`,
+    });
+
     new cdk.CfnOutput(this, 'GetAulaAndPersistFunctionName', {
       description: 'Name of the GetAulaAndPersist Lambda function',
       value: this.lambdaFunctions.getAulaAndPersistFunction.functionName,
@@ -87,6 +94,11 @@ export class AulaNewsletterStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'AulaKeepSessionAliveFunctionName', {
       description: 'Name of the AulaKeepSessionAlive Lambda function',
       value: this.lambdaFunctions.aulaKeepSessionAliveFunction.functionName,
+    });
+
+    new cdk.CfnOutput(this, 'UpdateAndGenerateFullProcessFunctionName', {
+      description: 'Name of the UpdateAndGenerateFullProcess Lambda function',
+      value: this.lambdaFunctions.updateAndGenerateFullProcessFunction.functionName,
     });
 
     // IAM Role ARNs
@@ -103,6 +115,11 @@ export class AulaNewsletterStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'KeepSessionAliveRoleArn', {
       description: 'IAM role ARN for KeepSessionAlive Lambda',
       value: this.lambdaFunctions.keepSessionAliveRole.roleArn,
+    });
+
+    new cdk.CfnOutput(this, 'UpdateAndGenerateFullProcessRoleArn', {
+      description: 'IAM role ARN for UpdateAndGenerateFullProcess Lambda',
+      value: this.lambdaFunctions.updateAndGenerateFullProcessRole.roleArn,
     });
 
     // DynamoDB Table Names
@@ -155,6 +172,11 @@ export class AulaNewsletterStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'SessionIdEndpoint', {
       description: 'Full URL for session ID management endpoint',
       value: `${this.apiGateway.api.url}api/sessionID`,
+    });
+
+    new cdk.CfnOutput(this, 'SendNewsletterEndpoint', {
+      description: 'Full URL for on-demand newsletter generation endpoint',
+      value: `${this.apiGateway.api.url}api/sendNewsletter`,
     });
 
     new cdk.CfnOutput(this, 'ManageSessionIdFunctionArn', {

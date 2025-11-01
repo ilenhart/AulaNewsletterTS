@@ -2,6 +2,17 @@
  * Shared TypeScript type definitions for all Aula Newsletter Lambdas
  */
 
+// ===== Date Range Override (For On-Demand Newsletter Generation) =====
+
+/**
+ * Date range override for on-demand newsletter generation via API
+ * Allows API calls to override default date ranges for both lambdas
+ */
+export interface DateRangeOverride {
+  lastNumberOfDays?: number;  // Days in past (threads, posts, calendar past, gallery)
+  futureDays?: number;         // Days in future (calendar events only)
+}
+
 // ===== Aula Data Types (Used across lambdas) =====
 
 export interface AulaMessage {
@@ -154,6 +165,7 @@ export interface LambdaEvent {
   'detail-type'?: string;
   time?: string;
   resources?: string[];
+  dateRangeOverride?: DateRangeOverride;
   [key: string]: any;
 }
 

@@ -17,10 +17,12 @@ export class LambdaFunctionsConstruct extends Construct {
   public readonly generateNewsletterFunction: NodejsFunction;
   public readonly aulaKeepSessionAliveFunction: NodejsFunction;
   public readonly manageSessionIdFunction: NodejsFunction;
+  public readonly updateAndGenerateFullProcessFunction: NodejsFunction;
   public readonly getAulaRole: iam.Role;
   public readonly generateNewsletterRole: iam.Role;
   public readonly keepSessionAliveRole: iam.Role;
   public readonly manageSessionIdRole: iam.Role;
+  public readonly updateAndGenerateFullProcessRole: iam.Role;
 
   constructor(
     scope: Construct,
@@ -269,6 +271,43 @@ export class LambdaFunctionsConstruct extends Construct {
       environment: {
         TABLE_NAME: tables.aulaSessionIdTable.tableName,
         AULASESSION_AUTHENTICATE_TOKEN: config.aulaSessionAuthenticateToken,
+      },
+      bundling: commonBundling,
+    });
+
+    // Create IAM role for UpdateAndGenerateFullProcess Lambda (needs lambda:InvokeFunction)
+    this.updateAndGenerateFullProcessRole = new iam.Role(this, 'UpdateAndGenerateFullProcessRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      description: 'Execution role for UpdateAndGenerateFullProcess Lambda - Invoke other lambdas',
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+      ],
+    });
+
+    // Grant permission to invoke get-aula-persist and generate-newsletter lambdas
+    this.updateAndGenerateFullProcessRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: [
+        this.getAulaAndPersistFunction.functionArn,
+        this.generateNewsletterFunction.functionArn,
+      ],
+    }));
+
+    // UpdateAndGenerateFullProcess Lambda function (orchestrates on-demand newsletter generation)
+    this.updateAndGenerateFullProcessFunction = new NodejsFunction(this, 'UpdateAndGenerateFullProcessFunction', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      entry: path.join(process.cwd(), 'src/functions/update-and-generate-full-process/index.ts'),
+      handler: 'handler',
+      role: this.updateAndGenerateFullProcessRole,
+      timeout: cdk.Duration.seconds(900), // 15 minutes (enough for both lambdas to complete)
+      description: 'Orchestrates on-demand newsletter generation by invoking get-aula-persist then generate-newsletter',
+      environment: {
+        AULASESSION_AUTHENTICATE_TOKEN: config.aulaSessionAuthenticateToken,
+        GET_AULA_PERSIST_FUNCTION_NAME: this.getAulaAndPersistFunction.functionName,
+        GENERATE_NEWSLETTER_FUNCTION_NAME: this.generateNewsletterFunction.functionName,
+        GET_AULA_TIMEOUT: config.getAulaTimeout.toString(),
+        GENERATE_NEWSLETTER_TIMEOUT: config.generateNewsletterTimeout.toString(),
       },
       bundling: commonBundling,
     });

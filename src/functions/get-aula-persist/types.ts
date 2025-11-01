@@ -2,6 +2,8 @@
  * TypeScript type definitions for the GetAulaAndPersist Lambda
  */
 
+import { DateRangeOverride } from '../../common/types';
+
 // ===== Aula API Response Types =====
 
 export interface AulaMessage {
@@ -164,6 +166,8 @@ export interface LambdaEvent {
   source?: string;
   'detail-type'?: string;
   time?: string;
+  // Date range override (when invoked by orchestrator)
+  dateRangeOverride?: DateRangeOverride;
   [key: string]: any;
 }
 

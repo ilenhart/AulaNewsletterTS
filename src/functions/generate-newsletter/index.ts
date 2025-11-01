@@ -169,10 +169,24 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
     const today = new Date();
     const todayDateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
 
-    // NEW: Load most recent snapshot for incremental generation
-    logInfo('Loading most recent newsletter snapshot');
-    const previousSnapshot = await newsletterDataService.getMostRecentSnapshot();
-    if (previousSnapshot) {
+    // Extract date range override from event (if invoked by orchestrator)
+    const dateRangeOverride = event.dateRangeOverride;
+
+    if (dateRangeOverride) {
+      logInfo('Date range override detected - forcing FULL MODE', {
+        lastNumberOfDays: dateRangeOverride.lastNumberOfDays,
+        futureDays: dateRangeOverride.futureDays,
+      });
+    }
+
+    // NEW: Load most recent snapshot for incremental generation (skip if override present)
+    const previousSnapshot = dateRangeOverride
+      ? null  // Force full mode when date override is provided
+      : await newsletterDataService.getMostRecentSnapshot();
+
+    if (dateRangeOverride) {
+      logInfo('Date range override provided - skipping snapshot lookup and forcing full mode');
+    } else if (previousSnapshot) {
       logInfo('Previous snapshot loaded successfully', {
         snapshotDate: previousSnapshot.SnapshotDate,
         generatedAt: previousSnapshot.GeneratedAt,
@@ -290,16 +304,35 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
         newsletterDataService.getPostsWithAttachmentsSince(previousSnapshot!.GeneratedAt),
       ]);
     } else {
-      logInfo('FULL MODE: Fetching all data (no previous snapshot)');
+      logInfo('FULL MODE: Fetching all data (no previous snapshot or date override provided)');
+
+      // Apply overrides using nullish coalescing operator
+      const effectiveThreadDays = dateRangeOverride?.lastNumberOfDays
+        ?? config.dataRetrieval.threadMessagesDaysInPast;
+      const effectivePostDays = dateRangeOverride?.lastNumberOfDays
+        ?? config.dataRetrieval.postsDaysInPast;
+      const effectiveCalendarPast = dateRangeOverride?.lastNumberOfDays
+        ?? config.dataRetrieval.calendarEventsDaysInPast;
+      const effectiveCalendarFuture = dateRangeOverride?.futureDays
+        ?? config.dataRetrieval.calendarEventsDaysInFuture;
+
+      if (dateRangeOverride) {
+        logInfo('Using date range overrides for FULL MODE data fetching', {
+          effectiveThreadDays,
+          effectivePostDays,
+          effectiveCalendarPast,
+          effectiveCalendarFuture,
+        });
+      }
 
       [overviews, threadsData, calendarEvents, postsData] = await Promise.all([
         newsletterDataService.getDailyOverviews(today),
-        newsletterDataService.getThreadsWithMessages(config.dataRetrieval.threadMessagesDaysInPast),
+        newsletterDataService.getThreadsWithMessages(effectiveThreadDays),
         newsletterDataService.getCalendarEvents(
-          config.dataRetrieval.calendarEventsDaysInPast,
-          config.dataRetrieval.calendarEventsDaysInFuture
+          effectiveCalendarPast,
+          effectiveCalendarFuture
         ),
-        newsletterDataService.getPostsWithAttachments(config.dataRetrieval.postsDaysInPast),
+        newsletterDataService.getPostsWithAttachments(effectivePostDays),
       ]);
     }
 

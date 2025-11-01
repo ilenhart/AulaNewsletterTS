@@ -153,10 +153,20 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
       throw error;
     }
 
+    // Extract date range override from event (if invoked by orchestrator)
+    const dateRangeOverride = event.dateRangeOverride;
+
+    if (dateRangeOverride) {
+      logInfo('Date range override detected', {
+        lastNumberOfDays: dateRangeOverride.lastNumberOfDays,
+        futureDays: dateRangeOverride.futureDays,
+      });
+    }
+
     // Calculate intelligent date ranges based on session history
     logInfo('Calculating intelligent date ranges for data retrieval');
 
-    // For threads and posts: use smart date calculation
+    // For threads and posts: use smart date calculation (unless overridden)
     const threadStartDate = calculateDataStartDate(session, config.dataRetrieval.threadMessagesDays);
     const postStartDate = calculateDataStartDate(session, config.dataRetrieval.postsDays);
 
@@ -164,26 +174,36 @@ export const handler = async (event: LambdaEvent, context: LambdaContext): Promi
     const threadDays = Math.ceil((Date.now() - threadStartDate.getTime()) / (1000 * 60 * 60 * 24));
     const postDays = Math.ceil((Date.now() - postStartDate.getTime()) / (1000 * 60 * 60 * 24));
 
-    // For calendar and gallery: use configured values (they have different semantics - past/future ranges)
+    // Apply date range overrides if provided
+    const effectiveThreadDays = dateRangeOverride?.lastNumberOfDays ?? threadDays;
+    const effectivePostDays = dateRangeOverride?.lastNumberOfDays ?? postDays;
+    const effectiveCalendarPast = dateRangeOverride?.lastNumberOfDays ?? config.dataRetrieval.calendarEventsPast;
+    const effectiveCalendarFuture = dateRangeOverride?.futureDays ?? config.dataRetrieval.calendarEventsFuture;
+    const effectiveGalleryDays = dateRangeOverride?.lastNumberOfDays ?? config.dataRetrieval.galleryDays;
+
     const intelligentConfig = {
-      threadMessagesDays: threadDays,
-      postsDays: postDays,
-      calendarEventsPast: config.dataRetrieval.calendarEventsPast,
-      calendarEventsFuture: config.dataRetrieval.calendarEventsFuture,
-      galleryDays: config.dataRetrieval.galleryDays,
+      threadMessagesDays: effectiveThreadDays,
+      postsDays: effectivePostDays,
+      calendarEventsPast: effectiveCalendarPast,
+      calendarEventsFuture: effectiveCalendarFuture,
+      galleryDays: effectiveGalleryDays,
     };
 
-    logInfo('Using intelligent date ranges', {
+    logInfo('Using date ranges', {
+      isOverride: !!dateRangeOverride,
       threads: {
-        startDate: threadStartDate.toISOString(),
-        days: threadDays,
+        startDate: dateRangeOverride ? undefined : threadStartDate.toISOString(),
+        days: effectiveThreadDays,
         configDefault: config.dataRetrieval.threadMessagesDays,
       },
       posts: {
-        startDate: postStartDate.toISOString(),
-        days: postDays,
+        startDate: dateRangeOverride ? undefined : postStartDate.toISOString(),
+        days: effectivePostDays,
         configDefault: config.dataRetrieval.postsDays,
       },
+      calendarEventsPast: effectiveCalendarPast,
+      calendarEventsFuture: effectiveCalendarFuture,
+      galleryDays: effectiveGalleryDays,
     });
 
     // Retrieve data from Aula

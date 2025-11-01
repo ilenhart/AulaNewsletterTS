@@ -21,7 +21,12 @@ Aula itself can be configured to send an emailed notification when there is a ne
 
 In order to do this, this project pulls the latest messages and posts from Aula on a set schedule, and persists them to a secure database (get-aula-persist).  Then, on a separate schedule, a generate newsletter process runs (generate-newsletter), which examines the information in the secure database, summarizes, extracts reminders and implied events, and generally makes sense out of the whole thing.   Behind the scenes, this uses AI in Bedrock with the Claude model to do translation, summary, etc.
 
-By default, if there are no updates since the last time the newsletter process ran (no new messages or posts), then no newsletter is sent at all.  This is configurable, if you want to receive basically an empty or repeated email just for kicks. 
+By default, if there are no updates since the last time the newsletter process ran (no new messages or posts), then no newsletter is sent at all.  This is configurable, if you want to receive basically an empty or repeated email just for kicks.
+
+**On-Demand Newsletter Generation**: In addition to scheduled newsletters, you can trigger immediate newsletter generation via the REST API endpoint `PUT /api/sendNewsletter`. This allows you to:
+- Generate a newsletter outside of the scheduled time
+- Create custom newsletters covering specific date ranges (e.g., last 7 days, next 14 days)
+- Test newsletter generation during development
 
 Important to know, this process also translates the results into English (from Danish), so if you are looking to have the original Danish, that could be a configurable future feature request, or just change the prompts in this project accordingly.
 
@@ -35,16 +40,17 @@ Note that if Aula has planned maintenance or otherwise goes down, the session wi
 
 ## Architecture Overview
 
-The application uses a **four-Lambda architecture** with scheduled execution and REST API:
+The application uses a **five-Lambda architecture** with scheduled execution and REST API:
 
 1. **GetAulaAndPersist Lambda**: Runs twice daily (9am & 5pm UTC) to fetch and store Aula data
 2. **GenerateNewsletter Lambda**: Runs daily (6pm UTC) to generate and email AI-summarized newsletters
 3. **AulaKeepSessionAlive Lambda**: Runs every 4 hours to ping Aula and keep sessions alive
 4. **ManageSessionId Lambda**: REST API handler for GET/POST session ID management (used by Chrome extension)
+5. **UpdateAndGenerateFullProcess Lambda**: REST API handler for on-demand newsletter generation with custom date ranges
 
 ### AWS Services Used
 
-- **AWS Lambda**: Four functions for data fetching, newsletter generation, session management, and API
+- **AWS Lambda**: Five functions for data fetching, newsletter generation, session management, API session management, and on-demand newsletter generation
 - **Amazon DynamoDB**: 13 tables for storing RAW, PARSED, session data, and attachment metadata
 - **Amazon S3**: One bucket for storing downloaded Aula attachments
 - **Amazon EventBridge**: Scheduled rules for automatic Lambda execution
@@ -192,7 +198,8 @@ AulaNewsletterTS/                      # Root-level CDK project
 │   │   ├── get-aula-persist/          # Fetch & persist Aula data
 │   │   ├── generate-newsletter/       # Generate AI newsletters
 │   │   ├── aula-keep-session-alive/   # Keep sessions alive
-│   │   └── manage-sessionid/          # API Gateway handler
+│   │   ├── manage-sessionid/          # API Gateway handler (session management)
+│   │   └── update-and-generate-full-process/  # API Gateway handler (on-demand newsletter)
 │   └── common/                        # Shared library code
 │       ├── aws/                       # AWS client factories
 │       ├── dynamodb/                  # DynamoDB utilities
@@ -388,6 +395,41 @@ All tables use:
 - **IAM Role**: `manageSessionIdRole` - DynamoDB read/write session table only
 - **Authentication**: Requires `X-aulasession-authenticate` header with token
 
+### UpdateAndGenerateFullProcess (API Gateway Handler - On-Demand Newsletter)
+- **Runtime**: Node.js 18.x
+- **Timeout**: 900 seconds (15 minutes)
+- **Trigger**: API Gateway REST API (no schedule)
+- **Endpoint**:
+  - `PUT /api/sendNewsletter` - Trigger on-demand newsletter generation
+- **Function**: Orchestrates immediate newsletter generation by invoking GetAulaAndPersist (to fetch latest data) followed by GenerateNewsletter (to create and email the newsletter). Supports custom date range overrides via query parameters.
+- **Query Parameters** (optional):
+  - `lastNumberOfDays` - Number of days in the past to retrieve data (0-365)
+  - `futureDays` - Number of days in the future for calendar events (0-365)
+- **Code**: `src/functions/update-and-generate-full-process/index.ts`
+- **IAM Role**: `updateAndGenerateFullProcessRole` - Lambda InvokeFunction permissions for GetAulaAndPersist and GenerateNewsletter lambdas only
+- **Authentication**: Requires `X-aulasession-authenticate` header with token
+- **Response**: Returns 202 Accepted immediately (lambda runs in background)
+- **CORS**: Enabled for cross-origin requests
+
+**Example Usage:**
+```bash
+# Generate newsletter with default date ranges
+curl -X PUT \
+  -H "X-aulasession-authenticate: your-token-here" \
+  https://your-api-id.execute-api.eu-west-1.amazonaws.com/prod/api/sendNewsletter
+
+# Generate newsletter for last 7 days and next 14 days
+curl -X PUT \
+  -H "X-aulasession-authenticate: your-token-here" \
+  "https://your-api-id.execute-api.eu-west-1.amazonaws.com/prod/api/sendNewsletter?lastNumberOfDays=7&futureDays=14"
+```
+
+**Use Cases:**
+- Generate an immediate newsletter outside of the scheduled time
+- Create a custom newsletter covering a specific date range (e.g., weekly recap, monthly summary)
+- Trigger newsletter generation after manually updating the session ID
+- Test newsletter generation during development
+
 ## EventBridge Schedules
 
 | Lambda Function | Cron Expression | Schedule | Default |
@@ -396,6 +438,7 @@ All tables use:
 | GenerateNewsletter | `GENERATE_NEWSLETTER_SCHEDULE` | Configurable | `cron(0 18 * * ? *)` (6pm UTC) |
 | AulaKeepSessionAlive | `KEEP_SESSION_ALIVE_SCHEDULE` | Configurable | `cron(0 0/4 * * ? *)` (Every 4 hours) |
 | ManageSessionId | N/A - API Gateway triggered | No schedule | N/A |
+| UpdateAndGenerateFullProcess | N/A - API Gateway triggered | No schedule | N/A |
 
 ## IAM Permissions
 
@@ -422,6 +465,10 @@ Each Lambda has its own least-privilege IAM role:
 - **CloudWatch Logs**: Write logs
 - **DynamoDB**: Read/write session table only
 
+### UpdateAndGenerateFullProcess Role (`updateAndGenerateFullProcessRole`)
+- **CloudWatch Logs**: Write logs
+- **Lambda**: InvokeFunction for GetAulaAndPersist and GenerateNewsletter lambdas only
+
 ## S3 Buckets
 
 ### AulaAttachmentsBucket
@@ -444,6 +491,7 @@ Each Lambda has its own least-privilege IAM role:
 - **Endpoints**:
   - `GET /api/sessionID` - Retrieve current session
   - `POST /api/sessionID` - Update session ID
+  - `PUT /api/sendNewsletter` - Trigger on-demand newsletter generation (with optional query parameters)
 - **Authentication**: Custom header `X-aulasession-authenticate`
 
 ## Outputs
@@ -459,20 +507,21 @@ After deployment, the stack exports:
 - `AulaKeepSessionAliveFunctionName`: Function name for CLI invocation
 - `ManageSessionIdFunctionArn`: ARN of the API Gateway handler Lambda
 - `ManageSessionIdFunctionName`: Function name for CLI invocation
+- `UpdateAndGenerateFullProcessFunctionArn`: ARN of the on-demand newsletter Lambda
+- `UpdateAndGenerateFullProcessFunctionName`: Function name for CLI invocation
 
 ### IAM Roles
 - `GetAulaRoleArn`: IAM role ARN for GetAulaAndPersist
 - `GenerateNewsletterRoleArn`: IAM role ARN for GenerateNewsletter
 - `KeepSessionAliveRoleArn`: IAM role ARN for KeepSessionAlive
 - `ManageSessionIdRoleArn`: IAM role ARN for ManageSessionId
+- `UpdateAndGenerateFullProcessRoleArn`: IAM role ARN for UpdateAndGenerateFullProcess
 
 ### API Gateway
 - `ApiGatewayUrl`: Full URL to the API Gateway endpoint
-- `ApiGatewayRestApiId`: REST API ID
-- `ApiGatewayRestApiName`: REST API name
-- `ApiGatewayStageName`: Deployment stage name (prod)
-- `ApiGatewayDeploymentId`: Current deployment ID
-- `SessionEndpointUrl`: Full URL to session management endpoint
+- `ApiGatewayId`: REST API ID
+- `SessionIdEndpoint`: Full URL to session management endpoint (`/api/sessionID`)
+- `SendNewsletterEndpoint`: Full URL to on-demand newsletter generation endpoint (`/api/sendNewsletter`)
 
 ### EventBridge Schedules
 - `GetAulaSchedule`: Cron expression for GetAulaAndPersist
