@@ -36,7 +36,10 @@
       "Bash(aws apigateway get-resources:*)",
       "Bash(aws apigateway get-deployments:*)",
       "Bash(aws apigateway get-stage:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(ENABLE_EVENTBRIDGE_SCHEDULES=false npx cdk synth:*)",
+      "Bash(set ENABLE_EVENTBRIDGE_SCHEDULES=false)",
+      "Bash(test:*)"
     ],
     "deny": [],
     "ask": []

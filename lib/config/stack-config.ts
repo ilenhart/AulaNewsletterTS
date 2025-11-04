@@ -8,6 +8,7 @@ dotenv.config();
  * EventBridge schedule configuration for Lambda functions
  */
 export interface ScheduleConfiguration {
+  enableSchedules: boolean;  // Control whether EventBridge schedules are deployed
   getAulaSchedule: string;
   generateNewsletterSchedule: string;
   keepSessionAliveSchedule: string;
@@ -161,24 +162,28 @@ export function loadConfiguration(): StackConfiguration {
   }
 
   // Load schedule configuration with defaults
+  const enableSchedules = getEnv('ENABLE_EVENTBRIDGE_SCHEDULES', 'true').toLowerCase() === 'true';
   const getAulaSchedule = getEnv('GET_AULA_SCHEDULE', '0 9,17 * * ? *');
   const generateNewsletterSchedule = getEnv('GENERATE_NEWSLETTER_SCHEDULE', '0 18 * * ? *');
   const keepSessionAliveSchedule = getEnv('KEEP_SESSION_ALIVE_SCHEDULE', '0 0/4 * * ? *');
   const keepSessionAliveHighFrequencySchedule = process.env.KEEP_SESSION_ALIVE_HIGH_FREQ_SCHEDULE || undefined;
 
-  // Validate cron expressions
-  validateCronExpression(getAulaSchedule, 'GET_AULA_SCHEDULE');
-  validateCronExpression(generateNewsletterSchedule, 'GENERATE_NEWSLETTER_SCHEDULE');
-  validateCronExpression(keepSessionAliveSchedule, 'KEEP_SESSION_ALIVE_SCHEDULE');
+  // Validate cron expressions only if schedules are enabled
+  if (enableSchedules) {
+    validateCronExpression(getAulaSchedule, 'GET_AULA_SCHEDULE');
+    validateCronExpression(generateNewsletterSchedule, 'GENERATE_NEWSLETTER_SCHEDULE');
+    validateCronExpression(keepSessionAliveSchedule, 'KEEP_SESSION_ALIVE_SCHEDULE');
 
-  // Validate optional high-frequency schedule if provided
-  if (keepSessionAliveHighFrequencySchedule) {
-    validateCronExpression(keepSessionAliveHighFrequencySchedule, 'KEEP_SESSION_ALIVE_HIGH_FREQ_SCHEDULE');
+    // Validate optional high-frequency schedule if provided
+    if (keepSessionAliveHighFrequencySchedule) {
+      validateCronExpression(keepSessionAliveHighFrequencySchedule, 'KEEP_SESSION_ALIVE_HIGH_FREQ_SCHEDULE');
+    }
   }
 
   return {
     environment,
     scheduleConfig: {
+      enableSchedules,
       getAulaSchedule,
       generateNewsletterSchedule,
       keepSessionAliveSchedule,

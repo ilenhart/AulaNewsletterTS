@@ -1,116 +1,304 @@
-# Aula Newsletter CDK Infrastructure
+# Aula Newsletter - AI-Powered School Updates
 
-This directory contains the AWS CDK infrastructure for the Aula Newsletter application - an automated newsletter system that fetches data from the Aula school management platform, stores it in DynamoDB, and generates AI-powered newsletter summaries using Amazon Bedrock (Claude AI).
+An AWS serverless application that automatically generates AI-summarized email newsletters from [Aula.dk](https://www.aula.dk), Denmark's school communication platform.
 
-## Purpose
+## What This Does
 
-This is a complete setup of a number of functions, but the main functionality is:
-- Keep track and persist valid sessionIDs from somewhere external (API Gateway, via ManageSessionID) (see related projects below for why this is)
-- Keep sessionIDs alive by periodically pinging to ensure it is alive (lambda: aula-keep-session-alive, via Eventbridge) (see related projects below for why this is)
-These are "helper" functions needed due to the way Aula controls access.
+**Aula can be overwhelming.** Teachers and parents constantly post messages, create threads, share photos, and announce events. This project solves that problem by:
 
-But the **main** purpose of this project is the generation of a periodic emailed newsletter for a parent to receive.  This newsletter can be received on whatever schedule is desired, and it includes:
-- Any important events or reminders from Aula, from the threads/messages or posts that are created
-- Any calendar events
-- Any attachments (images/files) that were posted
-- And generally, just "what's going on lately".
+- **Fetching** the latest messages, posts, calendar events, and attachments from Aula
+- **Translating** content from Danish to English using AI (Claude 3 Sonnet)
+- **Summarizing** everything into a clean, actionable email newsletter
+- **Delivering** it to your inbox with images, attachments, and important reminders highlighted
 
-The intent of this project is because Aula itself can be very noisy, with parents and teachers creating posts and threads about things all the time.  As a busy parent, it can be involved to review Aula constantly to see what the latest is, so this newsletter is a "once daily" (or more if you want) summary of the very latest from Aula.  Naturally, once recieving the email, you can go directly to Aula to read more in detail about a particular message or post.
-
-Aula itself can be configured to send an emailed notification when there is a new message or post, but unfortunately that notification doesn't really contain any information, just a pointer to go find it on Aula.  So, this once daily newsletter is better because it contains all the relevant content in a combined way (rather than message by message as Aula itself does).
-
-In order to do this, this project pulls the latest messages and posts from Aula on a set schedule, and persists them to a secure database (get-aula-persist).  Then, on a separate schedule, a generate newsletter process runs (generate-newsletter), which examines the information in the secure database, summarizes, extracts reminders and implied events, and generally makes sense out of the whole thing.   Behind the scenes, this uses AI in Bedrock with the Claude model to do translation, summary, etc.
-
-By default, if there are no updates since the last time the newsletter process ran (no new messages or posts), then no newsletter is sent at all.  This is configurable, if you want to receive basically an empty or repeated email just for kicks.
-
-**On-Demand Newsletter Generation**: In addition to scheduled newsletters, you can trigger immediate newsletter generation via the REST API endpoint `PUT /api/sendNewsletter`. This allows you to:
-- Generate a newsletter outside of the scheduled time
-- Create custom newsletters covering specific date ranges (e.g., last 7 days, next 14 days)
-- Test newsletter generation during development
-
-Important to know, this process also translates the results into English (from Danish), so if you are looking to have the original Danish, that could be a configurable future feature request, or just change the prompts in this project accordingly.
-
-## Access to Aula
-
-It's important to know that in order to access Aula, you must have a valid sessionID.  This sessionID is stored in the AulaSessionID dynamoDB table, so it can always be used.  Where can you get this in the first place?  See the AulaLoginBrowserExtension mentioned below under related projects.   How can we ensure this session remains valid?  This project contains the AulaKeepSessionAlive lambda, which will ensure the session remains valid.
-
-So, as a first step, it is recommended you use the above browser extension in chrome, log into Aula with your MitID credentials, and then use the extension to persist the session.  This session process is functionally equivalent to keeping your browser open and refreshing it periodically, so there is no circumvention of security happening.  MitID is still **required** as part of this process.
-
-Note that if Aula has planned maintenance or otherwise goes down, the session will no longer be valid. See planned maintenance here: https://aulainfoprod.heyday.dk/driftsstatus , which is typically expected on Saturday nights.
-
-## Architecture Overview
-
-The application uses a **five-Lambda architecture** with scheduled execution and REST API:
-
-1. **GetAulaAndPersist Lambda**: Runs twice daily (9am & 5pm UTC) to fetch and store Aula data
-2. **GenerateNewsletter Lambda**: Runs daily (6pm UTC) to generate and email AI-summarized newsletters
-3. **AulaKeepSessionAlive Lambda**: Runs every 4 hours to ping Aula and keep sessions alive
-4. **ManageSessionId Lambda**: REST API handler for GET/POST session ID management (used by Chrome extension)
-5. **UpdateAndGenerateFullProcess Lambda**: REST API handler for on-demand newsletter generation with custom date ranges
-
-### AWS Services Used
-
-- **AWS Lambda**: Five functions for data fetching, newsletter generation, session management, API session management, and on-demand newsletter generation
-- **Amazon DynamoDB**: 13 tables for storing RAW, PARSED, session data, and attachment metadata
-- **Amazon S3**: One bucket for storing downloaded Aula attachments
-- **Amazon EventBridge**: Scheduled rules for automatic Lambda execution
-- **Amazon Bedrock**: Claude 3 Sonnet for AI translation and summarization
-- **Amazon SES**: Email delivery service
-- **Amazon API Gateway**: REST API for session management
-- **IAM**: Roles and permissions management
-
-## Related Projects
-
-This extension is part of a suite of three interconnected projects designed to work with the Aula.dk platform. Each project can be used independently, but together they form a complete solution for Aula session management, API interaction, and automation.
-
-### 🔐 AulaLoginBrowserExtension 
-
-**Repository**: [github.com/ilenhart/AulaLoginBrowserExtension](https://github.com/ilenhart/AulaLoginBrowserExtension)
-
-**Purpose**: Chrome browser extension for capturing and storing Aula session IDs
-
-**What it does**:
-- Automatically detects and extracts your PHPSESSID from www.aula.dk
-- Provides a real-time view of your current session
-- Synchronizes session IDs with a backend persistence layer via REST API
-- Supports custom authentication for secure backend communication
-- Can work with any REST backend, or specifically with **AulaNewsletterTS** as a backend
-
-**Use this when**: You need to capture and persist your Aula session ID for use by other services or automation tools.
+**Why this matters:** Aula's built-in email notifications just say "you have a new message" - they don't include the actual content. This newsletter gives you the full story in one consolidated email, so you can stay informed without constantly checking Aula.
 
 ---
 
-### 📡 AulaApiClient
+## On-Demand vs Scheduled Execution
 
-**Repository**: [github.com/ilenhart/AulaAPIClient](https://github.com/ilenhart/AulaApiClient)
+### 🚀 **Recommended: On-Demand Execution**
 
-**Purpose**: General-purpose API wrapper for the Aula platform
+Due to Aula's unpredictable session timeouts, **on-demand execution is more reliable** than scheduled execution. Simply call the API when you want a newsletter:
 
-**What it does**:
-- Provides a clean, typed interface for interacting with Aula.dk `/api` endpoints
-- Handles authentication using the PHPSESSID session ID
-- Wraps common Aula API operations (messages, calendars, profiles, etc.)
-- Can be integrated into any Node.js or TypeScript project
+```bash
+curl -X PUT \
+  -H "X-aulasession-authenticate: your-secret-token" \
+  https://your-api-id.execute-api.eu-west-1.amazonaws.com/prod/api/sendNewsletter
+```
 
-**Use this when**: You need to programmatically interact with Aula's API from your own applications or scripts.
+**Why on-demand is better:**
+- ✅ **Session control** - Generate newsletters only when you know the session is valid
+- ✅ **No wasted runs** - Avoid failures during Aula maintenance windows or session expirations
+- ✅ **Custom timing** - Get newsletters when YOU want them, not on a fixed schedule
+- ✅ **Lower costs** - No EventBridge charges, fewer failed Lambda executions
+
+**Typical workflow:**
+1. Log into Aula using the [AulaLoginBrowserExtension](#related-projects) (updates session automatically)
+2. Trigger newsletter generation via API call
+3. Receive email within 1-2 minutes
+
+**Custom date ranges:**
+```bash
+# Get a weekly recap (last 7 days)
+curl -X PUT \
+  -H "X-aulasession-authenticate: your-token" \
+  "https://your-api-id.execute-api.eu-west-1.amazonaws.com/prod/api/sendNewsletter?lastNumberOfDays=7&futureDays=14"
+```
+
+### ⏰ **Optional: Scheduled Execution**
+
+You can also enable automatic newsletter generation on a schedule (e.g., daily at 6pm). However, **be aware**:
+
+⚠️ **Aula sessions have absolute timeouts** that occur even with the keep-alive lambda running. This means:
+- Scheduled runs may fail if the session expires between browser logins
+- Failed runs waste AWS resources and don't send emails
+- You'll need to manually update the session to resume automatic newsletters
+
+**To enable schedules:**
+```bash
+# In .env file
+ENABLE_EVENTBRIDGE_SCHEDULES=true
+
+# Deploy
+npx cdk deploy
+```
+
+**Default schedule:**
+- **GetAulaAndPersist**: 9am & 5pm UTC (fetch data twice daily)
+- **GenerateNewsletter**: 6pm UTC (send newsletter once daily)
+- **KeepSessionAlive**: Every 3 hours (attempt to maintain session)
+
+**When scheduled execution makes sense:**
+- You have stable session reliability (rare)
+- You log into Aula via browser frequently (session stays fresh)
+- You don't mind occasional failures during maintenance windows
+
+---
+
+## Architecture
+
+### Five Lambda Functions
+
+1. **GetAulaAndPersist** - Fetches data from Aula and stores in DynamoDB
+   - Retrieves messages, posts, calendar events, gallery albums, MeeBook data
+   - Downloads attachments to S3
+   - Smart date range calculation (fetches only what's needed)
+
+2. **GenerateNewsletter** - Creates and emails AI-powered newsletters
+   - Queries DynamoDB for recent data (incremental mode)
+   - Translates Danish → English using Bedrock (Claude 3 Sonnet)
+   - Summarizes messages, extracts action items, highlights family names
+   - Generates HTML email with inline images and file links
+   - Sends via Amazon SES
+
+3. **AulaKeepSessionAlive** - Maintains session validity
+   - Pings Aula API every 3 hours to keep session alive
+   - Sends email alerts if session expires
+   - **Note**: Cannot prevent absolute session timeouts
+
+4. **ManageSessionId** (API) - Session management REST endpoint
+   - `GET /api/sessionID` - Retrieve current session
+   - `POST /api/sessionID` - Update session (called by browser extension)
+   - Used by [AulaLoginBrowserExtension](#related-projects)
+
+5. **UpdateAndGenerateFullProcess** (API) - On-demand newsletter generation
+   - `PUT /api/sendNewsletter` - Trigger immediate newsletter
+   - Orchestrates GetAulaAndPersist → GenerateNewsletter
+   - Supports custom date range overrides
+   - Returns 202 Accepted (runs asynchronously)
+
+### AWS Services
+
+- **Lambda**: Serverless compute for all five functions
+- **DynamoDB**: 13 tables for raw data, parsed data, sessions, attachments
+- **S3**: Storage for downloaded Aula attachments (images and files)
+- **Bedrock**: Claude 3 Sonnet for AI translation and summarization
+- **SES**: Email delivery service
+- **API Gateway**: REST API for session management and on-demand newsletters
+- **EventBridge**: (Optional) Scheduled Lambda execution
+- **IAM**: Least-privilege roles for each Lambda function
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- **Node.js** 18.x or later
+- **AWS CLI** configured with credentials
+- **AWS CDK** installed globally: `npm install -g aws-cdk`
+- **Amazon SES** verified sender email address
+- **Amazon Bedrock** access to Claude 3 Sonnet model
+
+### Installation
+
+1. **Clone and install dependencies:**
+   ```bash
+   git clone https://github.com/ilenhart/AulaNewsletterTS.git
+   cd AulaNewsletterTS
+   npm install
+   ```
+
+2. **Configure environment variables:**
+   ```bash
+   cp .env.default .env
+   # Edit .env with your actual values
+   ```
+
+3. **Bootstrap CDK (first time only):**
+   ```bash
+   cdk bootstrap
+   ```
+
+### Required Configuration
+
+Edit [.env](.env) and set these required values:
+
+```bash
+# Email Configuration (REQUIRED)
+EMAIL_FROM_ADDRESS=your-verified-email@example.com
+EMAIL_TO_ADDRESSES=recipient1@example.com,recipient2@example.com
+
+# API Authentication Token (REQUIRED)
+# Generate with: openssl rand -hex 32
+AULASESSION_AUTHENTICATE_TOKEN=your-secret-token-here
+
+# User Information (REQUIRED for AI prompts)
+PARENT_FIRSTNAME=YourFirstName
+CHILD_FIRSTNAME=ChildFirstName
+CHILD_NAME=Child FullName
+PARENT_NAMES=Parent1 FullName, Parent2 FullName
+PARENT_MAILBOX_IDS=1234567,1234568
+```
+
+### Optional Configuration
+
+```bash
+# Execution Mode (default: false - on-demand only)
+ENABLE_EVENTBRIDGE_SCHEDULES=false
+
+# Newsletter Data Retrieval (defaults shown)
+THREADMESSAGES_DAYS_IN_PAST=3
+CALENDAR_EVENTS_DAYS_IN_PAST=3
+CALENDAR_EVENTS_DAYS_IN_FUTURE=7
+POSTS_DAYS_IN_PAST=3
+
+# Lambda Timeouts (seconds)
+GET_AULA_TIMEOUT=900                    # 15 minutes
+GENERATE_NEWSLETTER_TIMEOUT=900         # 15 minutes
+KEEP_SESSION_ALIVE_TIMEOUT=60           # 1 minute
+
+# EventBridge Schedules (only used if ENABLE_EVENTBRIDGE_SCHEDULES=true)
+GET_AULA_SCHEDULE=0 9,17 * * ? *               # 9am & 5pm UTC
+GENERATE_NEWSLETTER_SCHEDULE=0 18 * * ? *      # 6pm UTC
+KEEP_SESSION_ALIVE_SCHEDULE=0 0/3 * * ? *      # Every 3 hours
+```
+
+See [.env.default](.env.default) for all available options.
+
+### Deploy to AWS
+
+```bash
+# Compile TypeScript
+npm run build
+
+# Preview CloudFormation changes
+npx cdk diff
+
+# Deploy to AWS
+npx cdk deploy
+```
+
+After deployment, note the outputs:
+- `SessionIdEndpoint` - URL for session management (used by browser extension)
+- `SendNewsletterEndpoint` - URL for on-demand newsletter generation
+- `ApiGatewayUrl` - Base URL for API Gateway
+
+---
+
+## Session Management
+
+### How Sessions Work
+
+Aula uses PHP session IDs (`PHPSESSID`) for authentication. This project:
+1. Stores the session ID in DynamoDB (`AulaSessionIdTable`)
+2. Uses it to authenticate all Aula API calls
+3. Pings Aula periodically to keep the session alive (best effort)
+
+**Important:** Sessions have absolute timeouts (typically 24-48 hours) that cannot be prevented. When this happens, you must log into Aula again via browser and update the session.
+
+### Getting a Session ID
+
+Use the **[AulaLoginBrowserExtension](#related-projects)** Chrome extension:
+1. Install the extension
+2. Configure it to use your `SessionIdEndpoint` URL
+3. Log into Aula.dk with MitID
+4. Extension automatically captures and syncs session ID
+
+**No MitID credentials are stored** - the extension only captures the session cookie after you've logged in.
+
+### Session State Tracking
+
+The system tracks session health:
+- `created` - When this session was first added
+- `lastUsedSuccessfully` - Last successful Aula API call
+- `lastUsedFailure` - First failure timestamp (if session expired)
+
+If `lastUsedFailure` is set, lambdas will exit early to avoid wasted processing.
+
+### Session Expiration Alerts
+
+When the session expires, you'll receive an email alert with:
+- Session age and last successful ping time
+- TTL expiration status
+- Steps to resolve (login via browser, update session)
+
+---
+
+## Related Projects
+
+This project is part of a three-project ecosystem:
+
+### 🔐 [AulaLoginBrowserExtension](https://github.com/ilenhart/AulaLoginBrowserExtension)
+
+Chrome extension that captures your Aula session ID and syncs it with this backend.
+
+**What it does:**
+- Detects PHPSESSID from www.aula.dk
+- Real-time session display
+- Syncs with AulaNewsletterTS via REST API
+- Automatic session updates after login
+
+**Use this when:** You need to capture and persist your Aula session ID.
+
+---
+
+### 📡 [AulaApiClient](https://github.com/ilenhart/AulaApiClient)
+
+TypeScript library for interacting with Aula's API endpoints.
+
+**What it does:**
+- Clean, typed interface for Aula.dk `/api` endpoints
+- Handles authentication via PHPSESSID
+- Wraps messages, calendars, profiles, galleries, MeeBook, etc.
+- Can be integrated into any Node.js/TypeScript project
+
+**Use this when:** You want to build your own Aula integration.
 
 ---
 
 ### 📰 AulaNewsletterTS (This Project)
 
-**Repository**: [github.com/ilenhart/AulaNewsletterTS](https://github.com/ilenhart/AulaNewsletterTS)
+AWS serverless backend for session management and AI-powered newsletters.
 
-**Purpose**: AWS-based automation platform for Aula with session persistence and AI-powered newsletters
+**What it does:**
+- REST API for session storage (compatible with browser extension)
+- Periodic session keep-alive pings
+- Automated newsletter generation with AI summarization
+- Complete AWS infrastructure (Lambda, DynamoDB, S3, Bedrock, SES)
 
-**What it does**:
-- Acts as a REST API backend for storing session IDs (compatible with this extension)
-- Periodically pings Aula to keep sessions alive  (similar to if you keep Aula open in your browser and occasionally refresh)
-- Pulls information from Aula using the **AulaApiClient** library
-- Generates AI-powered newsletters from Aula data
-- Sends automated email updates
-- Deployed as a serverless solution on AWS (Lambda, DynamoDB, SES)
-
-**Use this when**: You want a complete, turnkey solution for Aula automation, session management, and automated newsletters.
+**Use this when:** You want a turnkey solution for Aula automation.
 
 ---
 
@@ -126,13 +314,14 @@ This extension is part of a suite of three interconnected projects designed to w
 │  └────────────────┬───────────────────┘                     │
 └───────────────────┼─────────────────────────────────────────┘
                     │
-                    │ REST API (POST /session)
+                    │ POST /api/sessionID
                     ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  AWS (AulaNewsletterTS)                                     │
 │  ┌────────────────────────────────────┐                     │
-│  │  • Stores session ID in DynamoDB   │                     │
-│  │  • Keeps session alive (pings)     │                     │
+│  │  • Stores session in DynamoDB      │                     │
+│  │  • Keeps session alive (ping)      │                     │
+│  │  • Generates newsletters (on-demand)│                    │
 │  │  • Uses AulaApiClient ────────┐    │                     │
 │  └────────────────────────────────┼────┘                    │
 └───────────────────────────────────┼─────────────────────────┘
@@ -140,7 +329,7 @@ This extension is part of a suite of three interconnected projects designed to w
                                     │ Uses library
                                     ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  AulaApiClient                                              │
+│  AulaApiClient (npm package)                                │
 │  ┌────────────────────────────────────┐                     │
 │  │  • Makes API calls to Aula.dk      │                     │
 │  │  • Fetches messages, calendar, etc │                     │
@@ -149,411 +338,322 @@ This extension is part of a suite of three interconnected projects designed to w
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Usage Scenarios
+**Recommended Setup:**
+1. Deploy **AulaNewsletterTS** to AWS
+2. Install **AulaLoginBrowserExtension** in Chrome
+3. Configure extension to use your `SessionIdEndpoint`
+4. Log into Aula - extension auto-syncs session
+5. Call `/api/sendNewsletter` whenever you want a newsletter
 
-**Scenario 1: Manual Session Management**
-- Use **AulaLoginBrowserExtension** alone to view and manually save your session ID to a simple backend of your choice
+---
 
-**Scenario 2: Custom Integration**
-- Use **AulaLoginBrowserExtension** to capture sessions
-- Use **AulaApiClient** in your own application to interact with Aula
-- Build your own backend for session storage
+## API Endpoints
 
-**Scenario 3: Complete Automation (Recommended)**
-- Deploy **AulaNewsletterTS** to AWS
-- Install **AulaLoginBrowserExtension** and configure it to use AulaNewsletterTS endpoints
-- Extension automatically keeps the backend session updated
-- **AulaNewsletterTS** uses **AulaApiClient** to pull data and generate newsletters
-- Fully automated Aula monitoring and notifications
+### Session Management
 
-### Getting Started with the Full Stack
+**GET /api/sessionID**
+- Retrieves current session record
+- Returns: `{ Id, sessionId, lastUpdated, ttl, created, lastUsedSuccessfully, lastUsedFailure }`
+- Auth: `X-aulasession-authenticate` header
 
-1. **Deploy AulaNewsletterTS** to AWS (follow its README for deployment instructions)
-2. **Install this extension** (AulaLoginBrowserExtension) in Chrome
-3. **Configure the extension** to use your AulaNewsletterTS API endpoints
-4. **Log into Aula.dk** - the extension will automatically sync your session
-5. **AulaNewsletterTS** will handle the rest (keeping session alive, generating newsletters)
+**POST /api/sessionID**
+- Updates session with new sessionId
+- Body: `{ "sessionId": "session-token-string" }`
+- Auth: `X-aulasession-authenticate` header
+- Clears failure state when posting new session
 
-Each project has its own detailed documentation in its respective repository.
+### On-Demand Newsletter
 
-## Project Structure
+**PUT /api/sendNewsletter**
+- Triggers immediate newsletter generation
+- Query params (optional):
+  - `lastNumberOfDays` (0-365) - Days in past to retrieve
+  - `futureDays` (0-365) - Days in future for calendar events
+- Auth: `X-aulasession-authenticate` header
+- Returns: 202 Accepted (runs asynchronously)
 
-```
-AulaNewsletterTS/                      # Root-level CDK project
-├── bin/
-│   └── app.ts                         # CDK app entry point
-├── lib/
-│   ├── config/
-│   │   └── stack-config.ts            # Type-safe configuration management
-│   ├── constructs/
-│   │   ├── dynamodb-tables.ts         # DynamoDB tables construct
-│   │   ├── lambda-functions.ts        # Lambda functions construct
-│   │   ├── s3-buckets.ts              # S3 buckets construct
-│   │   ├── api-gateway.ts             # API Gateway construct
-│   │   └── event-schedules.ts         # EventBridge schedules construct
-│   └── stacks/
-│       └── aula-newsletter-stack.ts   # Main stack definition
-├── src/
-│   ├── functions/                     # Lambda handlers
-│   │   ├── get-aula-persist/          # Fetch & persist Aula data
-│   │   ├── generate-newsletter/       # Generate AI newsletters
-│   │   ├── aula-keep-session-alive/   # Keep sessions alive
-│   │   ├── manage-sessionid/          # API Gateway handler (session management)
-│   │   └── update-and-generate-full-process/  # API Gateway handler (on-demand newsletter)
-│   └── common/                        # Shared library code
-│       ├── aws/                       # AWS client factories
-│       ├── dynamodb/                  # DynamoDB utilities
-│       ├── types.ts                   # Common TypeScript interfaces
-│       ├── config.ts                  # Configuration utilities
-│       └── utils.ts                   # Logging & error handling
-├── test/
-│   └── aula-newsletter-stack.test.ts  # Stack tests
-├── dist/                              # Compiled TypeScript output (gitignored)
-├── .env                               # Environment variables (gitignored)
-├── .env.default                       # Example environment configuration
-├── cdk.json                           # CDK configuration
-├── package.json                       # Node.js dependencies
-├── tsconfig.json                      # TypeScript configuration
-└── CLAUDE.md                          # Detailed project documentation
-```
-
-
-
-## Setup Instructions
-
-### Prerequisites
-
-- Node.js 18.x or later
-- AWS CLI configured with appropriate credentials
-- AWS CDK CLI installed: `npm install -g aws-cdk`
-
-### Installation
-
-1. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-
-2. **Configure environment variables**:
-   ```bash
-   cp .env.default .env
-   # Edit .env with your actual values
-   ```
-
-3. **Bootstrap CDK (first time only)**:
-   ```bash
-   cdk bootstrap
-   ```
-
-### Configuration
-
-Edit the `.env` file with your specific values:
-
-#### Required Configuration
-- `EMAIL_FROM_ADDRESS`: SES-verified sender email
-- `EMAIL_TO_ADDRESSES`: Recipient email addresses (comma-separated)
-- `AULASESSION_AUTHENTICATE_TOKEN`: Secret token for API Gateway authentication (generate with `openssl rand -hex 32`)
-
-**Note on Authentication**: This project uses session-based authentication via the `AulaSessionIdTable` DynamoDB table. Session IDs are populated by the AulaLoginBrowserExtension via the ManageSessionId API endpoint. No username/password is required for Lambda execution.
-
-#### User Information
-- `PARENT_FIRSTNAME`, `CHILD_FIRSTNAME`: Used in AI prompts
-- `CHILD_NAME`, `PARENT_NAMES`: Full names for newsletter context
-- `MESSAGE_FAMILY_NAMES_TO_FLAG`: Names to highlight in messages
-- `PARENT_MAILBOX_IDS`: Aula mailbox IDs (comma-separated)
-
-#### Optional Configuration - Newsletter Generation
-- `THREADMESSAGES_DAYS_IN_PAST`: Days to retrieve messages for newsletter (default: 3)
-- `CALENDAR_EVENTS_DAYS_IN_PAST`: Past calendar events for newsletter (default: 3)
-- `CALENDAR_EVENTS_DAYS_IN_FUTURE`: Future calendar events for newsletter (default: 7)
-- `POSTS_DAYS_IN_PAST`: Days to retrieve posts for newsletter (default: 3)
-
-#### Optional Configuration - GetAulaAndPersist Data Retrieval
-- `THREAD_MESSAGES_DAYS`: Days of thread messages to persist (default: 30)
-- `POSTS_DAYS`: Days of posts to persist (default: 30)
-- `CALENDAR_EVENTS_DAYS_PAST`: Past calendar events to persist (default: 10)
-- `CALENDAR_EVENTS_DAYS_FUTURE`: Future calendar events to persist (default: 30)
-- `GALLERY_DAYS`: Days of gallery albums to persist (default: 5)
-
-#### Optional Configuration - Lambda Timeouts
-- `GET_AULA_TIMEOUT`: GetAulaAndPersist timeout in seconds (default: 900)
-- `GENERATE_NEWSLETTER_TIMEOUT`: GenerateNewsletter timeout in seconds (default: 900)
-- `KEEP_SESSION_ALIVE_TIMEOUT`: KeepSessionAlive timeout in seconds (default: 60)
-
-#### Optional Configuration - EventBridge Schedules
-- `GET_AULA_SCHEDULE`: Cron expression for GetAulaAndPersist (default: `0 9,17 * * ? *`)
-- `GENERATE_NEWSLETTER_SCHEDULE`: Cron expression for GenerateNewsletter (default: `0 18 * * ? *`)
-- `KEEP_SESSION_ALIVE_SCHEDULE`: Cron expression for KeepSessionAlive (default: `0 0/4 * * ? *`)
-
-#### Optional Configuration - Deployment
-- `ENVIRONMENT`: Deployment environment - development, staging, or production (default: development)
-- `STACK_OWNER`: Cost allocation tag for owner (default: Team)
-- `COST_CENTER`: Cost allocation tag for cost center (default: Engineering)
-- `API_URL`: Aula API endpoint (default: https://www.aula.dk/api/)
-
-## CDK Commands
-
-### Development
-
+**Examples:**
 ```bash
-# Compile TypeScript to JavaScript
-npm run build
+# Default date ranges
+curl -X PUT \
+  -H "X-aulasession-authenticate: your-token" \
+  https://abc123.execute-api.eu-west-1.amazonaws.com/prod/api/sendNewsletter
 
-# Watch for changes and compile
-npm run watch
-
-# Run tests
-npm run test
+# Custom date ranges (last 7 days, next 14 days)
+curl -X PUT \
+  -H "X-aulasession-authenticate: your-token" \
+  "https://abc123.execute-api.eu-west-1.amazonaws.com/prod/api/sendNewsletter?lastNumberOfDays=7&futureDays=14"
 ```
 
-### Deployment
+---
 
-```bash
-# Synthesize CloudFormation template (check output)
-cdk synth
+## Data Storage
 
-# Show differences between deployed stack and current code
-cdk diff
+### DynamoDB Tables (13 total)
 
-# Deploy stack to AWS
-cdk deploy
+**Session Table:**
+- `AulaSessionIdTable` - Stores authentication session tokens
 
-# Destroy stack (WARNING: deletes all resources)
-cdk destroy
-```
-
-## DynamoDB Tables
-
-All tables use:
-- **Billing Mode**: Pay-per-request (no capacity planning needed)
-- **TTL**: Enabled on `ttl` attribute (1-month expiration)
-- **Partition Key**: `Id` (Number type, except RAW_threadMessages uses String)
-- **Removal Policy**: DESTROY (change to RETAIN for production)
-
-### Table List
-
-#### Session Table
-- `AulaSessionIdTable` - Stores Aula authentication session tokens
-
-#### RAW Data Tables
+**RAW Data Tables:** (TTL: 1 month)
 - `RAW_dailyOverview` - Daily school activity summaries
 - `RAW_threads` - Message thread metadata
-- `RAW_threadMessages` - Individual thread messages (Id is STRING type)
-- `RAW_calendarEvents` - Calendar events and appointments
+- `RAW_threadMessages` - Individual messages (⚠️ Id is STRING type)
+- `RAW_calendarEvents` - Calendar events
 - `RAW_posts` - School posts and announcements
 - `RAW_weekOverview` - MeeBook weekly work plans
 - `RAW_bookList` - MeeBook reading lists
 - `RAW_galleryAlbums` - Photo gallery albums
 - `RAW_derivedEvents` - AI-extracted events from posts
 
-#### PARSED Data Tables (Future Use)
-- `PARSED_posts` - Processed post data
-- `DERIVED_EVENTS_FromPostsTable` - Events extracted from posts
+**Metadata Table:**
+- `AulaAttachmentsTable` - S3 attachment locations with metadata
 
-#### Attachments Table
-- `AulaAttachmentsTable` - Attachment metadata with S3 locations
-  - **Partition Key**: `AttachmentId` (STRING)
-  - **GSI**: `PostIdIndex` - Query attachments by PostId (NUMBER)
-  - **GSI**: `MessageIdIndex` - Query attachments by MessageId (STRING)
-  - **Fields**: PostId, MessageId, AttachmentType (image/file), FileName, S3Key, S3Bucket, OriginalUrl, DownloadedAt, FileSize, ContentType, ttl
+**PARSED Tables:** (Future use)
+- `PARSED_posts`
+- `DERIVED_EVENTS_FromPostsTable`
 
-## Lambda Functions
+### S3 Bucket
 
-### GetAulaAndPersist
-- **Runtime**: Node.js 18.x
-- **Timeout**: 900 seconds (15 minutes) - configurable via `GET_AULA_TIMEOUT`
-- **Schedule**: Twice daily at 9am and 5pm UTC - configurable via `GET_AULA_SCHEDULE`
-- **Function**: Uses session ID from DynamoDB to authenticate to Aula, fetches data, persists to DynamoDB, downloads attachments to S3
-- **Code**: `src/functions/get-aula-persist/index.ts`
-- **IAM Role**: `getAulaRole` - DynamoDB read/write all tables, S3 read/write attachments bucket
+**AulaAttachmentsBucket:**
+- Stores downloaded Aula images and files
+- Encryption: S3-managed
+- Lifecycle: Delete after 1 year
+- Structure: `attachments/YYYY-MM-DD/{attachmentId}/{filename}`
 
-### GenerateNewsletter
-- **Runtime**: Node.js 18.x
-- **Timeout**: 900 seconds (15 minutes) - configurable via `GENERATE_NEWSLETTER_TIMEOUT`
-- **Schedule**: Daily at 6pm UTC - configurable via `GENERATE_NEWSLETTER_SCHEDULE`
-- **Function**: Retrieves data from DynamoDB, queries S3 attachment metadata, translates/summarizes with AI, generates HTML email with inline images and file links, sends via SES
-- **Code**: `src/functions/generate-newsletter/index.ts`
-- **IAM Role**: `generateNewsletterRole` - DynamoDB read-only all tables, S3 read attachments bucket, Bedrock InvokeModel (Claude 3 Sonnet only), SES SendEmail
+---
 
-### AulaKeepSessionAlive
-- **Runtime**: Node.js 18.x
-- **Timeout**: 60 seconds (1 minute) - configurable via `KEEP_SESSION_ALIVE_TIMEOUT`
-- **Schedule**: Every 4 hours - configurable via `KEEP_SESSION_ALIVE_SCHEDULE`
-- **Function**: Retrieves session ID from DynamoDB, pings Aula API to keep session alive, sends email alert on failure
-- **Code**: `src/functions/aula-keep-session-alive/index.ts`
-- **IAM Role**: `keepSessionAliveRole` - DynamoDB read/write session table only, SES SendEmail for alerts
+## IAM Permissions (Least Privilege)
 
-### ManageSessionId (API Gateway Handler)
-- **Runtime**: Node.js 18.x
-- **Timeout**: 60 seconds (default)
-- **Trigger**: API Gateway REST API (no schedule)
-- **Endpoints**:
-  - `GET /api/sessionID` - Retrieve current session record
-  - `POST /api/sessionID` - Update session with new sessionId
-- **Function**: Manages session IDs via REST API, validates authentication token, provides CORS headers for Chrome extension compatibility
-- **Code**: `src/functions/manage-sessionid/index.ts`
-- **IAM Role**: `manageSessionIdRole` - DynamoDB read/write session table only
-- **Authentication**: Requires `X-aulasession-authenticate` header with token
+Each Lambda has its own restricted IAM role:
 
-### UpdateAndGenerateFullProcess (API Gateway Handler - On-Demand Newsletter)
-- **Runtime**: Node.js 18.x
-- **Timeout**: 900 seconds (15 minutes)
-- **Trigger**: API Gateway REST API (no schedule)
-- **Endpoint**:
-  - `PUT /api/sendNewsletter` - Trigger on-demand newsletter generation
-- **Function**: Orchestrates immediate newsletter generation by invoking GetAulaAndPersist (to fetch latest data) followed by GenerateNewsletter (to create and email the newsletter). Supports custom date range overrides via query parameters.
-- **Query Parameters** (optional):
-  - `lastNumberOfDays` - Number of days in the past to retrieve data (0-365)
-  - `futureDays` - Number of days in the future for calendar events (0-365)
-- **Code**: `src/functions/update-and-generate-full-process/index.ts`
-- **IAM Role**: `updateAndGenerateFullProcessRole` - Lambda InvokeFunction permissions for GetAulaAndPersist and GenerateNewsletter lambdas only
-- **Authentication**: Requires `X-aulasession-authenticate` header with token
-- **Response**: Returns 202 Accepted immediately (lambda runs in background)
-- **CORS**: Enabled for cross-origin requests
+| Lambda | Permissions |
+|--------|-------------|
+| **GetAulaAndPersist** | DynamoDB read/write (all tables), S3 read/write (attachments) |
+| **GenerateNewsletter** | DynamoDB read-only, S3 read-only, Bedrock InvokeModel (Claude 3 Sonnet only), SES SendEmail |
+| **KeepSessionAlive** | DynamoDB read/write (session table only), SES SendEmail |
+| **ManageSessionId** | DynamoDB read/write (session table only) |
+| **UpdateAndGenerateFullProcess** | Lambda InvokeFunction (GetAulaAndPersist, GenerateNewsletter only) |
 
-**Example Usage:**
-```bash
-# Generate newsletter with default date ranges
-curl -X PUT \
-  -H "X-aulasession-authenticate: your-token-here" \
-  https://your-api-id.execute-api.eu-west-1.amazonaws.com/prod/api/sendNewsletter
+No functions have `*FullAccess` policies. All permissions are scoped to specific resources.
 
-# Generate newsletter for last 7 days and next 14 days
-curl -X PUT \
-  -H "X-aulasession-authenticate: your-token-here" \
-  "https://your-api-id.execute-api.eu-west-1.amazonaws.com/prod/api/sendNewsletter?lastNumberOfDays=7&futureDays=14"
+---
+
+## Newsletter Features
+
+### Intelligent Data Fetching
+
+**Incremental Mode** (default):
+- Searches for most recent newsletter snapshot (up to 7 days back)
+- Fetches only NEW data since last `GeneratedAt` timestamp
+- Reduces costs and processing time
+
+**Full Mode** (fallback):
+- Used on first run or if no recent snapshot found
+- Fetches configured days in past (default: 3 days)
+
+**Smart Date Ranges:**
+- GetAulaAndPersist uses session history to determine optimal start date
+- Priority: `lastUsedSuccessfully` → `created` → config defaults
+- Minimizes redundant data fetching
+
+### AI-Powered Summarization
+
+Uses **Claude 3 Sonnet** via Amazon Bedrock:
+- **Translation**: Danish → English (configurable)
+- **Summarization**: Concise bullet points for each data type
+- **Action Item Extraction**: Highlights tasks, reminders, deadlines
+- **Family Name Highlighting**: Flags messages mentioning your family
+- **Event Extraction**: Identifies implied events in posts (e.g., "bring raincoat Friday")
+
+### Email Formatting
+
+**HTML email includes:**
+- Executive summary (AI-generated overview)
+- Grouped message threads with attachments
+- Calendar events (past and future)
+- School posts with attachments
+- Inline image thumbnails
+- File download links (S3 pre-signed URLs)
+- Action items and reminders highlighted
+
+**Smart sending:**
+- Default: Skip email if no new content since last run
+- Configurable: `GENERATE_NEWSLETTER_IF_NOTHING_NEW=true` to always send
+
+---
+
+## Monitoring & Troubleshooting
+
+### CloudWatch Logs
+
+All lambdas use structured JSON logging:
+```json
+{
+  "level": "info",
+  "message": "Processing complete",
+  "itemsProcessed": 42,
+  "executionTime": 1234,
+  "successful": 40,
+  "failed": 2
+}
 ```
 
-**Use Cases:**
-- Generate an immediate newsletter outside of the scheduled time
-- Create a custom newsletter covering a specific date range (e.g., weekly recap, monthly summary)
-- Trigger newsletter generation after manually updating the session ID
-- Test newsletter generation during development
-
-## EventBridge Schedules
-
-| Lambda Function | Cron Expression | Schedule | Default |
-|----------------|-----------------|----------|---------|
-| GetAulaAndPersist | `GET_AULA_SCHEDULE` | Configurable | `cron(0 9,17 * * ? *)` (9am & 5pm UTC) |
-| GenerateNewsletter | `GENERATE_NEWSLETTER_SCHEDULE` | Configurable | `cron(0 18 * * ? *)` (6pm UTC) |
-| AulaKeepSessionAlive | `KEEP_SESSION_ALIVE_SCHEDULE` | Configurable | `cron(0 0/4 * * ? *)` (Every 4 hours) |
-| ManageSessionId | N/A - API Gateway triggered | No schedule | N/A |
-| UpdateAndGenerateFullProcess | N/A - API Gateway triggered | No schedule | N/A |
-
-## IAM Permissions
-
-Each Lambda has its own least-privilege IAM role:
-
-### GetAulaAndPersist Role (`getAulaRole`)
-- **CloudWatch Logs**: Write logs
-- **DynamoDB**: Read/write all tables
-- **S3**: Read/write attachments bucket
-
-### GenerateNewsletter Role (`generateNewsletterRole`)
-- **CloudWatch Logs**: Write logs
-- **DynamoDB**: Read-only all tables
-- **S3**: Read-only attachments bucket
-- **Bedrock**: InvokeModel (Claude 3 Sonnet only - `anthropic.claude-3-sonnet-20240229-v1:0`)
-- **SES**: SendEmail (restricted to specific sender via condition)
-
-### KeepSessionAlive Role (`keepSessionAliveRole`)
-- **CloudWatch Logs**: Write logs
-- **DynamoDB**: Read/write session table only
-- **SES**: SendEmail (for session expiration alerts)
-
-### ManageSessionId Role (`manageSessionIdRole`)
-- **CloudWatch Logs**: Write logs
-- **DynamoDB**: Read/write session table only
-
-### UpdateAndGenerateFullProcess Role (`updateAndGenerateFullProcessRole`)
-- **CloudWatch Logs**: Write logs
-- **Lambda**: InvokeFunction for GetAulaAndPersist and GenerateNewsletter lambdas only
-
-## S3 Buckets
-
-### AulaAttachmentsBucket
-- **Purpose**: Store downloaded Aula attachments (images and files)
-- **Encryption**: S3-managed encryption
-- **Public Access**: Blocked (all access via Lambda)
-- **Lifecycle**: Delete attachments after 1 year
-- **Removal Policy**: DESTROY for dev/staging, RETAIN for production
-- **Structure**: `attachments/YYYY-MM-DD/{attachmentId}/{filename}`
-
-## API Gateway
-
-### AulaSessionApi
-- **Type**: REST API
-- **Stage**: `prod`
-- **Endpoint**: Regional (publicly accessible)
-- **Base URL**: `https://{api-id}.execute-api.{region}.amazonaws.com/prod`
-- **CORS**: Enabled for all origins (supports Chrome extensions)
-- **Throttling**: 100 requests/second rate limit, 200 burst limit
-- **Endpoints**:
-  - `GET /api/sessionID` - Retrieve current session
-  - `POST /api/sessionID` - Update session ID
-  - `PUT /api/sendNewsletter` - Trigger on-demand newsletter generation (with optional query parameters)
-- **Authentication**: Custom header `X-aulasession-authenticate`
-
-## Outputs
-
-After deployment, the stack exports:
-
-### Lambda Functions
-- `GetAulaAndPersistFunctionArn`: ARN of the data fetching Lambda
-- `GetAulaAndPersistFunctionName`: Function name for CLI invocation
-- `GenerateNewsletterFunctionArn`: ARN of the newsletter Lambda
-- `GenerateNewsletterFunctionName`: Function name for CLI invocation
-- `AulaKeepSessionAliveFunctionArn`: ARN of the session keep-alive Lambda
-- `AulaKeepSessionAliveFunctionName`: Function name for CLI invocation
-- `ManageSessionIdFunctionArn`: ARN of the API Gateway handler Lambda
-- `ManageSessionIdFunctionName`: Function name for CLI invocation
-- `UpdateAndGenerateFullProcessFunctionArn`: ARN of the on-demand newsletter Lambda
-- `UpdateAndGenerateFullProcessFunctionName`: Function name for CLI invocation
-
-### IAM Roles
-- `GetAulaRoleArn`: IAM role ARN for GetAulaAndPersist
-- `GenerateNewsletterRoleArn`: IAM role ARN for GenerateNewsletter
-- `KeepSessionAliveRoleArn`: IAM role ARN for KeepSessionAlive
-- `ManageSessionIdRoleArn`: IAM role ARN for ManageSessionId
-- `UpdateAndGenerateFullProcessRoleArn`: IAM role ARN for UpdateAndGenerateFullProcess
-
-### API Gateway
-- `ApiGatewayUrl`: Full URL to the API Gateway endpoint
-- `ApiGatewayId`: REST API ID
-- `SessionIdEndpoint`: Full URL to session management endpoint (`/api/sessionID`)
-- `SendNewsletterEndpoint`: Full URL to on-demand newsletter generation endpoint (`/api/sendNewsletter`)
-
-### EventBridge Schedules
-- `GetAulaSchedule`: Cron expression for GetAulaAndPersist
-- `GenerateNewsletterSchedule`: Cron expression for GenerateNewsletter
-- `KeepSessionAliveSchedule`: Cron expression for KeepSessionAlive
-
-### Storage
-- `AttachmentsBucketName`: S3 bucket name for attachments
-- `AttachmentsBucketArn`: S3 bucket ARN
-- `AttachmentsTableName`: DynamoDB table name for attachment metadata
-
-## Testing Locally
-
-To test the Lambda functions locally before deployment:
-
-```bash
-# Compile CDK infrastructure and validate
-npm run build
-
-# Generate CloudFormation template to verify resources
-npx cdk synth
-
-# Lambda functions use TypeScript-native bundling via NodejsFunction
-# No manual compilation needed - esbuild handles bundling during cdk synth/deploy
+Use CloudWatch Logs Insights to query:
+```sql
+fields @timestamp, message, itemsProcessed, executionTime
+| filter level = "error"
+| sort @timestamp desc
 ```
 
+### Common Issues
 
+**Session expired:**
+- Symptom: Lambdas exit early with "Session is in failed state"
+- Solution: Log into Aula via browser, extension will auto-update session
+
+**Newsletter not sent:**
+- Check CloudWatch logs for GenerateNewsletter lambda
+- Verify SES sender email is verified
+- Check if incremental mode found no new data
+
+**Attachments not downloading:**
+- Verify S3 bucket exists and is accessible
+- Check GetAulaAndPersist CloudWatch logs for download errors
+- Ensure sufficient Lambda timeout (default: 15 minutes)
+
+**API Gateway errors:**
+- 401 Unauthorized: Check `X-aulasession-authenticate` header
+- 500 Internal Server Error: Check Lambda CloudWatch logs
+- 502 Bad Gateway: Lambda timeout (increase timeout setting)
+
+---
+
+## Costs
+
+Typical monthly costs (assumes on-demand execution, 1 newsletter per day):
+
+- **Lambda**: $1-2 (30 executions/month, 15 min avg runtime)
+- **DynamoDB**: $1-2 (pay-per-request, ~100 items read/write per run)
+- **S3**: $0.10 (storage + requests for ~50 attachments/month)
+- **Bedrock**: $10-15 (Claude 3 Sonnet, ~4 API calls per newsletter)
+- **SES**: $0.10 (1 email/day)
+- **API Gateway**: $0.10 (30 requests/month)
+- **EventBridge**: $0 (if schedules disabled)
+
+**Total: ~$13-20/month** for daily newsletters with AI summarization.
+
+**Cost savings with on-demand execution:**
+- No wasted Lambda runs during session failures
+- No EventBridge schedule charges
+- Lower DynamoDB costs (no keep-alive polling)
+
+---
+
+## Development
+
+### Project Structure
+
+```
+AulaNewsletterTS/
+├── bin/app.ts                                    # CDK app entry point
+├── lib/
+│   ├── config/stack-config.ts                    # Configuration loader
+│   ├── constructs/                               # CDK constructs
+│   │   ├── dynamodb-tables.ts
+│   │   ├── lambda-functions.ts
+│   │   ├── s3-buckets.ts
+│   │   ├── api-gateway.ts
+│   │   └── event-schedules.ts
+│   └── stacks/aula-newsletter-stack.ts           # Main stack
+├── src/
+│   ├── functions/                                # Lambda handlers
+│   │   ├── get-aula-persist/
+│   │   ├── generate-newsletter/
+│   │   ├── aula-keep-session-alive/
+│   │   ├── manage-sessionid/
+│   │   └── update-and-generate-full-process/
+│   └── common/                                   # Shared library
+│       ├── aws/                                  # AWS clients
+│       ├── dynamodb/                             # DynamoDB utilities
+│       ├── types.ts
+│       ├── config.ts
+│       └── utils.ts
+├── test/
+└── CLAUDE.md                                     # Detailed technical docs
+```
+
+### Commands
+
+```bash
+# Development
+npm run build                # Compile TypeScript
+npm run watch                # Watch mode for development
+npm test                     # Run tests
+
+# CDK
+npx cdk synth                # Generate CloudFormation template
+npx cdk diff                 # Show changes since last deployment
+npx cdk deploy               # Deploy to AWS
+npx cdk destroy              # Destroy stack (WARNING: deletes resources)
+
+# Testing lambdas locally
+npm test                     # Runs test/default.test.ts
+```
+
+### CDK Features
+
+- **TypeScript-native bundling**: Uses `NodejsFunction` with esbuild (no manual compilation)
+- **Type-safe configuration**: Validates environment variables at synth time
+- **Modular constructs**: Clean separation of concerns
+- **Cost tags**: Automatic tagging for cost allocation
+
+---
+
+## Aula Maintenance
+
+Aula has scheduled maintenance windows (typically Saturday nights). Check status:
+- **Driftsstatus**: https://aulainfoprod.heyday.dk/driftsstatus
+
+During maintenance:
+- Sessions may be invalidated
+- API calls will fail
+- Newsletter generation will fail
+
+**Recommendation:** Use on-demand execution to avoid wasted runs during maintenance.
+
+---
+
+## Security Considerations
+
+### Authentication Flow
+1. User logs into Aula with **MitID** (government-issued digital identity)
+2. Browser extension captures PHPSESSID cookie
+3. Extension posts session ID to AWS API Gateway
+4. API Gateway validates `X-aulasession-authenticate` header
+5. ManageSessionId lambda stores session in DynamoDB (encrypted at rest)
+6. Other lambdas retrieve session from DynamoDB for API calls
+
+**No MitID credentials are ever stored or transmitted** - only the session cookie.
+
+### Session Security
+- Sessions stored in DynamoDB with encryption at rest
+- API Gateway requires custom auth header
+- All Lambda functions use IAM roles (no hardcoded credentials)
+- S3 attachments are private (no public access)
+
+### Email Security
+- SES sender restricted to verified email addresses
+- IAM conditions prevent unauthorized email sending
+- Newsletter emails sent via TLS
+
+---
 
 ## License
 
-See parent project LICENSE file.
+See [LICENSE](LICENSE) file.
 
 ## Support
 
-For issues or questions, refer to the main project documentation at `/CLAUDE.md`.
+For detailed technical documentation, see [CLAUDE.md](CLAUDE.md).
+
+For issues or questions, open a GitHub issue.

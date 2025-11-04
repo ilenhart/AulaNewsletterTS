@@ -1025,6 +1025,19 @@ GET_AULA_TIMEOUT=1200  # Increase to 20 minutes
 
 ## Project History
 
+**November 2, 2025 - Optional EventBridge Schedules:**
+- ✅ Made EventBridge schedules optional at CDK deploy-time
+- ✅ Added `ENABLE_EVENTBRIDGE_SCHEDULES` environment variable (default: `true`)
+- ✅ Conditional deployment of EventBridge rules
+- ✅ EventSchedulesConstruct only created when schedules are enabled
+- ✅ CloudFormation outputs conditional on schedule deployment
+- ✅ Backward compatible - schedules enabled by default
+- ✅ Supports on-demand execution model via API Gateway
+- ✅ Comprehensive README documentation with use cases
+- ✅ Clean implementation - no mixed logic in constructs
+
+**Use Case:** Session reliability issues with Aula (unpredictable absolute timeouts) make scheduled execution unreliable. Users can now disable schedules and use on-demand API calls (`PUT /api/sendNewsletter`) exclusively.
+
 **October 25, 2025 - Session State Awareness & Intelligent Date Ranges:**
 - ✅ Implemented comprehensive session state awareness across all lambdas
 - ✅ Added `isSessionFailed()` and `getSessionRecord()` to shared DynamoDBSessionProvider

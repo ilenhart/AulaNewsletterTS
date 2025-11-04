@@ -21,7 +21,7 @@ export class AulaNewsletterStack extends cdk.Stack {
   public readonly tables: DynamoDBTablesConstruct;
   public readonly buckets: S3BucketsConstruct;
   public readonly lambdaFunctions: LambdaFunctionsConstruct;
-  public readonly eventSchedules: EventSchedulesConstruct;
+  public readonly eventSchedules?: EventSchedulesConstruct;
   public readonly apiGateway: ApiGatewayConstruct;
 
   constructor(scope: Construct, id: string, config: StackConfiguration, props?: cdk.StackProps) {
@@ -44,11 +44,13 @@ export class AulaNewsletterStack extends cdk.Stack {
       config.lambdaConfig
     );
 
-    // Create EventBridge Schedules
-    this.eventSchedules = new EventSchedulesConstruct(this, 'EventSchedules', {
-      lambdaFunctions: this.lambdaFunctions,
-      scheduleConfig: config.scheduleConfig,
-    });
+    // Create EventBridge Schedules (conditionally)
+    this.eventSchedules = config.scheduleConfig.enableSchedules
+      ? new EventSchedulesConstruct(this, 'EventSchedules', {
+          lambdaFunctions: this.lambdaFunctions,
+          scheduleConfig: config.scheduleConfig,
+        })
+      : undefined;
 
     // Create API Gateway
     this.apiGateway = new ApiGatewayConstruct(this, 'ApiGateway', {
@@ -133,27 +135,35 @@ export class AulaNewsletterStack extends cdk.Stack {
       value: this.tables.rawThreadMessagesTable.tableName,
     });
 
-    // EventBridge Rule ARNs
-    new cdk.CfnOutput(this, 'GetAulaScheduleRuleArn', {
-      description: 'EventBridge rule ARN for GetAulaAndPersist schedule',
-      value: this.eventSchedules.getAulaAndPersistRule.ruleArn,
-    });
+    // EventBridge Rule ARNs (conditional on schedules being enabled)
+    if (this.eventSchedules) {
+      new cdk.CfnOutput(this, 'GetAulaScheduleRuleArn', {
+        description: 'EventBridge rule ARN for GetAulaAndPersist schedule',
+        value: this.eventSchedules.getAulaAndPersistRule.ruleArn,
+      });
 
-    new cdk.CfnOutput(this, 'GenerateNewsletterScheduleRuleArn', {
-      description: 'EventBridge rule ARN for GenerateNewsletter schedule',
-      value: this.eventSchedules.generateNewsletterRule.ruleArn,
-    });
+      new cdk.CfnOutput(this, 'GenerateNewsletterScheduleRuleArn', {
+        description: 'EventBridge rule ARN for GenerateNewsletter schedule',
+        value: this.eventSchedules.generateNewsletterRule.ruleArn,
+      });
 
-    new cdk.CfnOutput(this, 'KeepSessionAliveScheduleRuleArn', {
-      description: 'EventBridge rule ARN for KeepSessionAlive schedule',
-      value: this.eventSchedules.aulaKeepSessionAliveRule.ruleArn,
-    });
+      new cdk.CfnOutput(this, 'KeepSessionAliveScheduleRuleArn', {
+        description: 'EventBridge rule ARN for KeepSessionAlive schedule',
+        value: this.eventSchedules.aulaKeepSessionAliveRule.ruleArn,
+      });
 
-    // Optional high-frequency schedule output
-    if (this.eventSchedules.aulaKeepSessionAliveHighFreqRule) {
-      new cdk.CfnOutput(this, 'KeepSessionAliveHighFreqScheduleRuleArn', {
-        description: 'EventBridge rule ARN for KeepSessionAlive high-frequency schedule',
-        value: this.eventSchedules.aulaKeepSessionAliveHighFreqRule.ruleArn,
+      // Optional high-frequency schedule output
+      if (this.eventSchedules.aulaKeepSessionAliveHighFreqRule) {
+        new cdk.CfnOutput(this, 'KeepSessionAliveHighFreqScheduleRuleArn', {
+          description: 'EventBridge rule ARN for KeepSessionAlive high-frequency schedule',
+          value: this.eventSchedules.aulaKeepSessionAliveHighFreqRule.ruleArn,
+        });
+      }
+    } else {
+      // Add output indicating schedules are disabled
+      new cdk.CfnOutput(this, 'EventBridgeSchedulesStatus', {
+        description: 'EventBridge schedules deployment status',
+        value: 'DISABLED - Lambdas can only be invoked manually or via API',
       });
     }
 
@@ -195,27 +205,29 @@ export class AulaNewsletterStack extends cdk.Stack {
       value: this.lambdaFunctions.manageSessionIdRole.roleArn,
     });
 
-    // Schedule configuration outputs
-    new cdk.CfnOutput(this, 'GetAulaSchedule', {
-      description: 'GetAulaAndPersist cron schedule',
-      value: config.scheduleConfig.getAulaSchedule,
-    });
-
-    new cdk.CfnOutput(this, 'GenerateNewsletterSchedule', {
-      description: 'GenerateNewsletter cron schedule',
-      value: config.scheduleConfig.generateNewsletterSchedule,
-    });
-
-    new cdk.CfnOutput(this, 'KeepSessionAliveSchedule', {
-      description: 'KeepSessionAlive cron schedule',
-      value: config.scheduleConfig.keepSessionAliveSchedule,
-    });
-
-    if (config.scheduleConfig.keepSessionAliveHighFrequencySchedule) {
-      new cdk.CfnOutput(this, 'KeepSessionAliveHighFreqSchedule', {
-        description: 'KeepSessionAlive high-frequency cron schedule',
-        value: config.scheduleConfig.keepSessionAliveHighFrequencySchedule,
+    // Schedule configuration outputs (conditional on schedules being enabled)
+    if (this.eventSchedules) {
+      new cdk.CfnOutput(this, 'GetAulaSchedule', {
+        description: 'GetAulaAndPersist cron schedule',
+        value: config.scheduleConfig.getAulaSchedule,
       });
+
+      new cdk.CfnOutput(this, 'GenerateNewsletterSchedule', {
+        description: 'GenerateNewsletter cron schedule',
+        value: config.scheduleConfig.generateNewsletterSchedule,
+      });
+
+      new cdk.CfnOutput(this, 'KeepSessionAliveSchedule', {
+        description: 'KeepSessionAlive cron schedule',
+        value: config.scheduleConfig.keepSessionAliveSchedule,
+      });
+
+      if (config.scheduleConfig.keepSessionAliveHighFrequencySchedule) {
+        new cdk.CfnOutput(this, 'KeepSessionAliveHighFreqSchedule', {
+          description: 'KeepSessionAlive high-frequency cron schedule',
+          value: config.scheduleConfig.keepSessionAliveHighFrequencySchedule,
+        });
+      }
     }
 
     // S3 Bucket outputs
